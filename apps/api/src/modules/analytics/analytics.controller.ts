@@ -5,7 +5,7 @@ import { AnalyticsService } from './analytics.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { TenantId } from '../../common/decorators/current-user.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
-import { parseDateRange } from '../../common/utils/date-range.util';
+import { parseDateRange, parseDateRangeFromDates } from '../../common/utils/date-range.util';
 
 @ApiTags('analytics')
 @ApiBearerAuth()
@@ -16,11 +16,7 @@ export class AnalyticsController {
 
   @Get('dashboard')
   @Roles(UserRole.PLATFORM_ADMIN, UserRole.TENANT_ADMIN, UserRole.ANALYST, UserRole.READ_ONLY)
-  dashboard(
-    @TenantId() tenantId: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
+  dashboard(@TenantId() tenantId: string, @Query('from') from?: string, @Query('to') to?: string) {
     return this.service.getDashboard(tenantId, parseDateRange(from, to));
   }
 
@@ -36,7 +32,7 @@ export class AnalyticsController {
       const end = new Date();
       const start = new Date();
       start.setDate(start.getDate() - (parseInt(days, 10) - 1));
-      return this.service.getDailyRollups(tenantId, parseDateRange(start.toISOString(), end.toISOString()));
+      return this.service.getDailyRollups(tenantId, parseDateRangeFromDates(start, end));
     }
     return this.service.getDailyRollups(tenantId, parseDateRange(from, to));
   }

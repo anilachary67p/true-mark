@@ -20,6 +20,11 @@ export function parseDateRange(from?: string, to?: string, defaultDays = 30): Da
   return { from: start, to: endOfDay(end) };
 }
 
+/** Build a date range from local Date values without ISO timestamp timezone drift. */
+export function parseDateRangeFromDates(from: Date, to: Date): DateRange {
+  return parseDateRange(toDateKey(from), toDateKey(to));
+}
+
 function parseIsoDate(value: string, field: string): Date {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const [year, month, day] = value.split('-').map(Number);
@@ -73,10 +78,6 @@ export function previousDateRange(range: DateRange): DateRange {
 export function metricDelta(current: number, previous: number) {
   const delta = current - previous;
   const deltaPercent =
-    previous > 0
-      ? Math.round((delta / previous) * 1000) / 10
-      : current > 0
-        ? 100
-        : 0;
+    previous > 0 ? Math.round((delta / previous) * 1000) / 10 : current > 0 ? 100 : 0;
   return { current, previous, delta, deltaPercent };
 }

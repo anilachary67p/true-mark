@@ -68,7 +68,9 @@ async function request<T>(
     );
   }
   const text = await res.text();
-  if (!text) return null as T;
+  if (!text) {
+    throw new Error(`API ${path} returned an empty body (HTTP ${res.status})`);
+  }
   return JSON.parse(text) as T;
 }
 
