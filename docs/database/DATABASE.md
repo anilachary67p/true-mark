@@ -127,7 +127,7 @@ Authoritative definitions: `packages/db/prisma/schema.prisma`.
 `packages/db/prisma/seed.ts` creates:
 
 - Platform admin (Super Admin): `admin@truemark.local`
-- Demo tenant: **ABC Pharmaceuticals**
+- Demo tenant: **PureGlow Personal Care**
 - Category **Personal Care** → Product type **Shampoo A** → variants with tags (`SH-A`, `SH-A-100`, etc.)
 - Signed tenant license
 - Verification domain: `verify.localhost`

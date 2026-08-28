@@ -3,73 +3,23 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useState } from 'react';
-import {
-  LayoutDashboard,
-  Building2,
-  Package,
-  QrCode,
-  Palette,
-  History,
-  Bot,
-  Shield,
-  Search,
-  BarChart3,
-  Globe,
-  Settings,
-  ScrollText,
-  LogOut,
-  Menu,
-  X,
-  ChevronRight,
-} from 'lucide-react';
 import { clearAuth, getRefreshToken, api } from '@/lib/api';
 import { clearSessionCache, useSession } from '@/providers/SessionProvider';
+import { getNavGroups } from '@/lib/navConfig';
+import { isPlatformAdminRole } from '@/lib/roleAccess';
 import { TopNavbar } from '@/components/TopNavbar';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/components/ui/cn';
 
-const NAV_GROUPS = [
-  {
-    title: 'Home',
-    items: [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/analytics', label: 'Analytics', icon: BarChart3 },
-    ],
-  },
-  {
-    title: 'Catalog',
-    items: [
-      { href: '/organizations', label: 'Organizations', icon: Building2 },
-      { href: '/products', label: 'Products', icon: Package },
-      { href: '/qr-codes', label: 'QR Codes', icon: QrCode },
-      { href: '/qr-customization', label: 'QR Customization', icon: Palette },
-    ],
-  },
-  {
-    title: 'Verification',
-    items: [
-      { href: '/verification-history', label: 'History', icon: History },
-      { href: '/ai-detection', label: 'AI Detection', icon: Bot },
-    ],
-  },
-  {
-    title: 'Security',
-    items: [
-      { href: '/fraud-intelligence', label: 'Fraud Intelligence', icon: Shield },
-      { href: '/investigations', label: 'Investigations', icon: Search },
-    ],
-  },
-  {
-    title: 'System',
-    items: [
-      { href: '/domains', label: 'Domains', icon: Globe },
-      { href: '/settings', label: 'Settings', icon: Settings },
-      { href: '/audit-log', label: 'Audit Log', icon: ScrollText },
-    ],
-  },
-];
+function isNavItemActive(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  if (href === '/settings') return false;
+  return pathname.startsWith(`${href}/`);
+}
 
-function HopeLogo() {
+import { LogOut, Menu, X, ChevronRight } from 'lucide-react';
+
+function HopeLogo({ subtitle = 'Admin' }: { subtitle?: string }) {
   return (
     <div className="flex items-center gap-3">
       <div className="relative flex h-9 w-9 items-center justify-center">
@@ -80,7 +30,9 @@ function HopeLogo() {
       </div>
       <div>
         <p className="text-base font-bold leading-tight text-hope-dark">TrueMark</p>
-        <p className="text-[10px] font-medium uppercase tracking-wider text-hope-muted">Admin</p>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-hope-muted">
+          {subtitle}
+        </p>
       </div>
     </div>
   );
@@ -89,6 +41,9 @@ function HopeLogo() {
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { userEmail, roleLabel, roles } = useSession();
+  const navGroups = getNavGroups(roles);
+  const subtitle = isPlatformAdminRole(roles) ? 'Platform' : 'Tenant';
 
   async function logout() {
     const rt = getRefreshToken();
@@ -107,11 +62,11 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="border-b border-slate-100 px-5 py-5">
-        <HopeLogo />
+        <HopeLogo subtitle={subtitle} />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-4 py-5">
-        {NAV_GROUPS.map((group) => (
+        {navGroups.map((group) => (
           <div key={group.title} className="mb-5">
             <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-widest text-hope-muted">
               {group.title}
@@ -119,7 +74,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const active = pathname === item.href;
+                const active = isNavItemActive(pathname, item.href);
                 return (
                   <li key={item.href}>
                     <Link
@@ -130,7 +85,9 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     >
                       <Icon className="h-[18px] w-[18px] shrink-0" />
                       <span className="flex-1">{item.label}</span>
-                      {!active && <ChevronRight className="h-3.5 w-3.5 text-hope-muted opacity-0 group-hover:opacity-100" />}
+                      {!active && (
+                        <ChevronRight className="h-3.5 w-3.5 text-hope-muted opacity-0 group-hover:opacity-100" />
+                      )}
                     </Link>
                   </li>
                 );
@@ -141,6 +98,12 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="border-t border-slate-100 p-4">
+        {userEmail && (
+          <div className="mb-3 rounded-xl bg-hope-body px-3 py-2.5">
+            <p className="truncate text-xs font-semibold text-hope-dark">{userEmail}</p>
+            <p className="text-[10px] font-medium text-hope-primary">{roleLabel}</p>
+          </div>
+        )}
         <Button variant="outline" className="w-full justify-start gap-2" onClick={logout}>
           <LogOut className="h-4 w-4" />
           Sign Out
@@ -152,8 +115,9 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { loading } = useSession();
+  const { loading, roles } = useSession();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const subtitle = isPlatformAdminRole(roles) ? 'Platform' : 'Tenant';
 
   useEffect(() => {
     setMobileOpen(false);
@@ -163,7 +127,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-hope-body">
       {/* Mobile header */}
       <header className="sticky top-0 z-40 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-        <HopeLogo />
+        <HopeLogo subtitle={subtitle} />
         <button type="button" onClick={() => setMobileOpen(true)} aria-label="Open menu">
           <Menu className="h-6 w-6 text-hope-dark" />
         </button>

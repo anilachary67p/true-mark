@@ -1,5 +1,6 @@
 'use client';
 
+import { PlatformSettings } from '@/components/PlatformSettings';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { FeedbackAlert } from '@/components/FeedbackAlert';
 import { PageCard } from '@/components/PageCard';
@@ -10,11 +11,11 @@ import { Badge } from '@/components/ui/Badge';
 import { useEffect, useState } from 'react';
 import { api, getToken, Tenant } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { useAuthGuard, useTenantId } from '@/lib/hooks';
+import { useAuthGuard, useSession, useTenantId } from '@/lib/hooks';
+import { isPlatformAdminRole } from '@/lib/roleAccess';
 import { Building2, Globe, Save, Shield } from 'lucide-react';
 
-export default function SettingsPage() {
-  useAuthGuard();
+function TenantSettingsPage() {
   const router = useRouter();
   const tenantId = useTenantId();
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -152,7 +153,7 @@ export default function SettingsPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Input
             label="Company display name"
-            placeholder="ABC Manufacture"
+            placeholder="PureGlow"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
           />
@@ -260,4 +261,17 @@ export default function SettingsPage() {
       </PageCard>
     </>
   );
+}
+
+export default function SettingsPage() {
+  useAuthGuard();
+  const { roles, ready } = useSession();
+
+  if (!ready) return null;
+
+  if (isPlatformAdminRole(roles)) {
+    return <PlatformSettings />;
+  }
+
+  return <TenantSettingsPage />;
 }

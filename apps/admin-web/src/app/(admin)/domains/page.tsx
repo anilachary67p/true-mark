@@ -118,7 +118,7 @@ function DomainsContent() {
             <form onSubmit={addCompanyDomain} className="mb-4 flex flex-col gap-2 sm:flex-row">
               <Input
                 type="url"
-                placeholder="https://www.abcpharma.com"
+                placeholder="https://www.pureglow.com"
                 value={companyUrl}
                 onChange={(e) => setCompanyUrl(e.target.value)}
                 required
@@ -151,7 +151,7 @@ function DomainsContent() {
             <form onSubmit={addVerificationDomain} className="mb-4 flex max-w-lg flex-col gap-4">
               <Input
                 label="Hostname"
-                placeholder="verify.abcpharma.com"
+                placeholder="verify.pureglow.com"
                 value={verifyHost}
                 onChange={(e) => setVerifyHost(e.target.value)}
                 required

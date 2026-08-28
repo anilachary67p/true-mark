@@ -154,10 +154,14 @@ pnpm --filter @truemark/consumer-web dev
 
 After seeding:
 
-| User                         | Password      | Role           |
-| ---------------------------- | ------------- | -------------- |
-| `admin@truemark.local`       | `Admin123!@#` | Platform admin |
-| `tenant-admin@abcpharma.com` | `Admin123!@#` | Tenant admin   |
+| User                                | Password      | Role           |
+| ----------------------------------- | ------------- | -------------- |
+| `admin@truemark.local`              | `Admin123!@#` | Platform admin |
+| `tenant-admin@pureglow.com`           | `Admin123!@#` | Tenant admin   |
+| `tenant-admin@luminaessentials.com` | `Admin123!@#` | Tenant admin   |
+| `tenant-admin@greenleaf.com`        | `Admin123!@#` | Tenant admin   |
+| `tenant-admin@novaelectronics.com`  | `Admin123!@#` | Tenant admin   |
+| `tenant-admin@metrohealth.com`      | `Admin123!@#` | Tenant admin   |
 
 ### 8. Test verification
 

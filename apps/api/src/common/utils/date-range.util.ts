@@ -61,3 +61,22 @@ export function toDateKey(date: Date): string {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+/** Previous period of equal length immediately before `range`. */
+export function previousDateRange(range: DateRange): DateRange {
+  const spanMs = range.to.getTime() - range.from.getTime();
+  const prevTo = new Date(range.from.getTime() - 1);
+  const prevFrom = new Date(prevTo.getTime() - spanMs);
+  return { from: startOfDay(prevFrom), to: endOfDay(prevTo) };
+}
+
+export function metricDelta(current: number, previous: number) {
+  const delta = current - previous;
+  const deltaPercent =
+    previous > 0
+      ? Math.round((delta / previous) * 1000) / 10
+      : current > 0
+        ? 100
+        : 0;
+  return { current, previous, delta, deltaPercent };
+}

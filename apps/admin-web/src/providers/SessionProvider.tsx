@@ -3,10 +3,15 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
+import { formatPrimaryRole } from '@/lib/roleLabels';
+import { isPlatformAdminRole } from '@/lib/roleAccess';
 
 type SessionState = {
   tenantId: string;
   userEmail: string;
+  roles: string[];
+  roleLabel: string;
+  isPlatformAdmin: boolean;
   loading: boolean;
   ready: boolean;
 };
@@ -14,17 +19,22 @@ type SessionState = {
 const SessionContext = createContext<SessionState>({
   tenantId: '',
   userEmail: '',
+  roles: [],
+  roleLabel: '',
+  isPlatformAdmin: false,
   loading: true,
   ready: false,
 });
 
 let cachedTenantId: string | null = null;
 let cachedUserEmail: string | null = null;
+let cachedRoles: string[] | null = null;
 let resolvePromise: Promise<string> | null = null;
 
 export function clearSessionCache() {
   cachedTenantId = null;
   cachedUserEmail = null;
+  cachedRoles = null;
   resolvePromise = null;
 }
 
@@ -40,6 +50,7 @@ async function fetchTenantId(): Promise<string> {
   resolvePromise = (async () => {
     const me = await api.me();
     cachedUserEmail = me.user.email;
+    cachedRoles = me.user.roles ?? [];
     let tid = me.user.tenantIds[0];
     if (!tid) {
       const tenants = await api.getTenants();
@@ -60,8 +71,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [tenantId, setTenantId] = useState(cachedTenantId ?? '');
   const [userEmail, setUserEmail] = useState(cachedUserEmail ?? '');
+  const [roles, setRoles] = useState<string[]>(cachedRoles ?? []);
   const [loading, setLoading] = useState(!cachedTenantId);
   const [ready, setReady] = useState(!!cachedTenantId);
+  const roleLabel = formatPrimaryRole(roles);
+  const isPlatformAdmin = isPlatformAdminRole(roles);
 
   useEffect(() => {
     if (!getToken()) {
@@ -72,6 +86,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (cachedTenantId) {
       setTenantId(cachedTenantId);
       setUserEmail(cachedUserEmail ?? '');
+      setRoles(cachedRoles ?? []);
       setLoading(false);
       setReady(true);
       return;
@@ -83,6 +98,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setTenantId(tid);
         setUserEmail(cachedUserEmail ?? '');
+        setRoles(cachedRoles ?? []);
         setReady(true);
       })
       .catch(() => {
@@ -98,7 +114,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   return (
-    <SessionContext.Provider value={{ tenantId, userEmail, loading, ready }}>
+    <SessionContext.Provider
+      value={{ tenantId, userEmail, roles, roleLabel, isPlatformAdmin, loading, ready }}
+    >
       {children}
     </SessionContext.Provider>
   );

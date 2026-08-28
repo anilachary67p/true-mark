@@ -345,6 +345,43 @@ export const api = {
       }>;
     }>('/admin/platform/overview'),
 
+  getPlatformDashboard: (range?: DateRangeValue) =>
+    request<{
+      dateRange: { from: string; to: string };
+      previousDateRange: { from: string; to: string };
+      totals: Record<
+        string,
+        { current: number; previous: number; delta: number; deltaPercent: number }
+      >;
+      dailyVolume: Array<{ date: string; count: number }>;
+      previousDailyVolume: Array<{ date: string; count: number }>;
+      resultDistribution: Array<{ result: string; count: number; previous: number }>;
+      tenantsByDeployment: Array<{ deploymentType: string; count: number }>;
+      tenantBreakdown: Array<{
+        tenantId: string;
+        tenantName: string;
+        status: string;
+        deploymentType: string;
+        verifications: number;
+        verified: number;
+        suspicious: number;
+        verificationRate: number;
+        catalog: { categories: number; productTypes: number; variants: number; tags: number };
+      }>;
+    }>(`/admin/platform/analytics/dashboard${buildDateQuery(range)}`),
+
+  getPlatformTenantDashboard: (tenantId: string, range?: DateRangeValue) =>
+    request<{
+      tenant: { id: string; name: string; status: string; deploymentType: string };
+      totals: Record<
+        string,
+        { current: number; previous: number; delta: number; deltaPercent: number }
+      >;
+      dailyVolume: Array<{ date: string; count: number }>;
+      previousDailyVolume: Array<{ date: string; count: number }>;
+      catalog: { categories: number; productTypes: number; variants: number; tags: number };
+    }>(`/admin/platform/analytics/tenants/${tenantId}/dashboard${buildDateQuery(range)}`),
+
   updateVariantStatus: (tenantId: string, variantId: string, status: string) =>
     request(`/admin/tenants/${tenantId}/variants/${variantId}/status`, {
       method: 'PATCH',

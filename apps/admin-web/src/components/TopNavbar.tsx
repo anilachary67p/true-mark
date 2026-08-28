@@ -20,7 +20,7 @@ const PAGE_TITLES: Record<string, string> = {
   'audit-log': 'Audit Log',
 };
 
-function UserAvatar({ email }: { email?: string }) {
+function UserAvatar({ email, roleLabel }: { email?: string; roleLabel: string }) {
   const initials = email
     ? email
         .split('@')[0]
@@ -34,7 +34,7 @@ function UserAvatar({ email }: { email?: string }) {
     <div className="flex items-center gap-2">
       <div className="hidden text-right sm:block">
         <p className="text-xs font-semibold text-hope-dark">{email?.split('@')[0] ?? 'Admin'}</p>
-        <p className="text-[10px] text-hope-muted">Administrator</p>
+        <p className="text-[10px] font-medium text-hope-primary">{roleLabel}</p>
       </div>
       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-hope-primary text-xs font-bold text-white ring-2 ring-hope-primary/20">
         {initials}
@@ -45,15 +45,22 @@ function UserAvatar({ email }: { email?: string }) {
 
 export function TopNavbar() {
   const pathname = usePathname();
-  const { userEmail } = useSession();
+  const { userEmail, roleLabel, isPlatformAdmin } = useSession();
   const segment = pathname.split('/').filter(Boolean)[0] ?? 'dashboard';
-  const title = PAGE_TITLES[segment] ?? 'Dashboard';
+  const title =
+    segment === 'dashboard' && isPlatformAdmin
+      ? 'Platform Dashboard'
+      : PAGE_TITLES[segment] ?? 'Dashboard';
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-100 bg-white/95 backdrop-blur-sm">
       <div className="flex h-[70px] items-center justify-between gap-4 px-4 md:px-8">
         <div className="flex items-center gap-4">
-          <button type="button" className="rounded-lg p-2 text-hope-secondary hover:bg-slate-100 md:hidden" aria-label="Menu">
+          <button
+            type="button"
+            className="rounded-lg p-2 text-hope-secondary hover:bg-slate-100 md:hidden"
+            aria-label="Menu"
+          >
             <Menu className="h-5 w-5" />
           </button>
           <div className="hidden items-center gap-1 sm:flex">
@@ -85,7 +92,7 @@ export function TopNavbar() {
             <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-hope-danger ring-2 ring-white" />
           </button>
 
-          <UserAvatar email={userEmail} />
+          <UserAvatar email={userEmail} roleLabel={roleLabel} />
         </div>
       </div>
     </header>

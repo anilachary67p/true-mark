@@ -16,7 +16,7 @@ test.describe('Public verification API', () => {
     expect(['VERIFIED', 'REVERIFIED']).toContain(body.result);
     expect(body.verificationPublicId).toBeTruthy();
     expect(body.tenantId).toBeUndefined();
-    expect(body.product?.name).toContain('ABC Shampoo');
+    expect(body.product?.name).toContain('Daily Repair Shampoo');
   });
 
   test('invalid QR returns UNKNOWN_QR', async ({ request }) => {

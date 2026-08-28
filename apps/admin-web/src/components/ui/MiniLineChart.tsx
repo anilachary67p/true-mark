@@ -1,34 +1,60 @@
-export function MiniLineChart({ points }: { points?: number[] }) {
-  const data = points && points.length > 1 ? points : [12, 18, 14, 22, 19, 28, 24, 32, 27, 35, 30, 38];
+export function MiniLineChart({
+  points,
+  points2,
+  stroke = '#3a57e8',
+  stroke2 = '#94a3b8',
+}: {
+  points?: number[];
+  points2?: number[];
+  stroke?: string;
+  stroke2?: string;
+}) {
+  const data = points && points.length > 0 ? points : [0];
+  const data2 = points2 && points2.length > 0 ? points2 : undefined;
+  const combined = data2 ? [...data, ...data2] : data;
   const width = 400;
   const height = 120;
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
+  const max = Math.max(...combined, 1);
+  const min = Math.min(...combined, 0);
   const span = max - min || 1;
 
-  const coords = data.map((value, index) => {
-    const x = (index / (data.length - 1)) * width;
-    const y = height - ((value - min) / span) * (height - 20) - 10;
-    return { x, y };
-  });
+  function buildPath(series: number[]) {
+    if (series.length === 1) {
+      const y = height - ((series[0] - min) / span) * (height - 20) - 10;
+      return { line: `M0,${y} L${width},${y}`, area: `M0,${y} L${width},${y} L${width},${height} L0,${height} Z` };
+    }
+    const coords = series.map((value, index) => {
+      const x = (index / (series.length - 1)) * width;
+      const y = height - ((value - min) / span) * (height - 20) - 10;
+      return { x, y };
+    });
+    const linePath = coords.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+    const areaPath = `${linePath} L${width},${height} L0,${height} Z`;
+    return { line: linePath, area: areaPath, coords };
+  }
 
-  const linePath = coords.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = `${linePath} L${width},${height} L0,${height} Z`;
+  const primary = buildPath(data);
+  const secondary = data2 ? buildPath(data2) : null;
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" preserveAspectRatio="none">
       <defs>
-        <linearGradient id="hopeArea" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3a57e8" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="#3a57e8" stopOpacity="0" />
+        <linearGradient id="hopeAreaPrimary" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={stroke} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={areaPath} fill="url(#hopeArea)" />
-      <path d={linePath} fill="none" stroke="#3a57e8" strokeWidth="2.5" strokeLinecap="round" />
-      {coords.map((p, i) =>
-        i % Math.max(1, Math.floor(coords.length / 6)) === 0 || i === coords.length - 1 ? (
-          <circle key={i} cx={p.x} cy={p.y} r="4" fill="#3a57e8" stroke="white" strokeWidth="2" />
-        ) : null,
+      <path d={primary.area} fill="url(#hopeAreaPrimary)" />
+      <path d={primary.line} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinecap="round" />
+      {secondary && (
+        <path
+          d={secondary.line}
+          fill="none"
+          stroke={stroke2}
+          strokeWidth="2"
+          strokeDasharray="6 4"
+          strokeLinecap="round"
+        />
       )}
     </svg>
   );

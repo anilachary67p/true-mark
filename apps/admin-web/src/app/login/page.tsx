@@ -104,8 +104,10 @@ export default function LoginPage() {
                 </Button>
               </form>
 
-              <p className="mt-5 text-center text-xs text-hope-muted">
-                Demo: admin@truemark.local / Admin123!@#
+              <p className="mt-5 space-y-1 text-center text-xs text-hope-muted">
+                <span className="block">Super Admin: admin@truemark.local</span>
+                <span className="block">Tenant Admin: tenant-admin@pureglow.com</span>
+                <span className="block">Password: Admin123!@#</span>
               </p>
             </CardBody>
           </Card>
