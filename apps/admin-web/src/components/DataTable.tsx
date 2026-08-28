@@ -1,41 +1,49 @@
+import { type ReactNode } from 'react';
 import { PageCard } from '@/components/PageCard';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/Table';
+import { TD } from '@/components/ui/Table';
+import { VirtualizedTable } from '@/components/ui/VirtualizedTable';
 
-export function DataTable({
+export function DataTable<T>({
   title,
   columns,
-  children,
+  rows,
+  rowKey,
+  renderRow,
+  getRowProps,
+  getRowHeight,
   emptyMessage = 'No records found.',
-  isEmpty,
+  maxHeight = 520,
+  estimateRowHeight = 52,
+  columnClassNames,
 }: {
   title?: string;
   columns: string[];
-  children: React.ReactNode;
+  rows: T[];
+  rowKey: (row: T, index: number) => string;
+  renderRow: (row: T, index: number) => ReactNode;
+  getRowProps?: (row: T, index: number) => { className?: string; onClick?: () => void };
+  getRowHeight?: (row: T, index: number) => number;
   emptyMessage?: string;
-  isEmpty?: boolean;
+  maxHeight?: number;
+  estimateRowHeight?: number;
+  columnClassNames?: Array<string | undefined>;
 }) {
   return (
     <PageCard title={title} noPadding>
-      <Table>
-        <THead>
-          <TR>
-            {columns.map((col) => (
-              <TH key={col}>{col}</TH>
-            ))}
-          </TR>
-        </THead>
-        <TBody>
-          {isEmpty ? (
-            <TR>
-              <TD colSpan={columns.length}>
-                <p className="py-10 text-center text-sm text-hope-secondary">{emptyMessage}</p>
-              </TD>
-            </TR>
-          ) : (
-            children
-          )}
-        </TBody>
-      </Table>
+      <VirtualizedTable
+        columns={columns}
+        rows={rows}
+        rowKey={rowKey}
+        renderRow={renderRow}
+        getRowProps={getRowProps}
+        getRowHeight={getRowHeight}
+        emptyMessage={emptyMessage}
+        maxHeight={maxHeight}
+        estimateRowHeight={estimateRowHeight}
+        columnClassNames={columnClassNames}
+      />
     </PageCard>
   );
 }
+
+export { TD };

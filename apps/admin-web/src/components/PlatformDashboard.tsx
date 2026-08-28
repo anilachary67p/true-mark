@@ -12,7 +12,8 @@ import { MiniLineChart } from '@/components/ui/MiniLineChart';
 import { MiniBarChart } from '@/components/ui/MiniBarChart';
 import { Button } from '@/components/ui/Button';
 import { StatusChip } from '@/components/StatusChip';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/Table';
+import { TD } from '@/components/ui/Table';
+import { VirtualizedTable } from '@/components/ui/VirtualizedTable';
 import { api } from '@/lib/api';
 import { DateRangeValue, formatRangeLabel } from '@/lib/dateRange';
 
@@ -211,46 +212,40 @@ export function PlatformDashboard() {
       </div>
 
       <PageCard noPadding title="Tenant breakdown — click a row for detailed stats">
-        <Table>
-          <THead>
-            <TR>
-              <TH>Organization</TH>
-              <TH>Status</TH>
-              <TH>Deployment</TH>
-              <TH>Verifications</TH>
-              <TH>Verified</TH>
-              <TH>Suspicious</TH>
-              <TH>Catalog</TH>
-              <TH />
-            </TR>
-          </THead>
-          <TBody>
-            {data.tenantBreakdown.map((t) => (
-              <TR
-                key={t.tenantId}
-                className={selectedTenantId === t.tenantId ? 'bg-hope-primary/5' : 'cursor-pointer hover:bg-slate-50'}
-                onClick={() => loadTenant(t.tenantId, range)}
-              >
-                <TD>
-                  <p className="font-semibold text-hope-dark">{t.tenantName}</p>
-                </TD>
-                <TD>
-                  <StatusChip status={t.status} />
-                </TD>
-                <TD className="text-xs">{t.deploymentType}</TD>
-                <TD>{t.verifications.toLocaleString()}</TD>
-                <TD>{t.verified.toLocaleString()}</TD>
-                <TD>{t.suspicious.toLocaleString()}</TD>
-                <TD className="text-xs text-hope-secondary">
-                  {t.catalog.categories} cat · {t.catalog.productTypes} types · {t.catalog.variants} variants
-                </TD>
-                <TD>
-                  <ChevronRight className="h-4 w-4 text-hope-muted" />
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <VirtualizedTable
+          columns={['Organization', 'Status', 'Deployment', 'Verifications', 'Verified', 'Suspicious', 'Catalog', '']}
+          rows={data.tenantBreakdown}
+          rowKey={(t) => t.tenantId}
+          maxHeight={420}
+          getRowProps={(t) => ({
+            className:
+              selectedTenantId === t.tenantId
+                ? 'cursor-pointer bg-hope-primary/5'
+                : 'cursor-pointer hover:bg-slate-50',
+            onClick: () => loadTenant(t.tenantId, range),
+          })}
+          renderRow={(t) => (
+            <>
+              <TD>
+                <p className="font-semibold text-hope-dark">{t.tenantName}</p>
+              </TD>
+              <TD>
+                <StatusChip status={t.status} />
+              </TD>
+              <TD className="text-xs">{t.deploymentType}</TD>
+              <TD>{t.verifications.toLocaleString()}</TD>
+              <TD>{t.verified.toLocaleString()}</TD>
+              <TD>{t.suspicious.toLocaleString()}</TD>
+              <TD className="text-xs text-hope-secondary">
+                {t.catalog.categories} cat · {t.catalog.productTypes} types · {t.catalog.variants}{' '}
+                variants
+              </TD>
+              <TD>
+                <ChevronRight className="h-4 w-4 text-hope-muted" />
+              </TD>
+            </>
+          )}
+        />
       </PageCard>
 
       {drillLoading && (

@@ -8,9 +8,20 @@ export function Table({ children, className }: { children: React.ReactNode; clas
   );
 }
 
-export function THead({ children }: { children: React.ReactNode }) {
+export function THead({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <thead className="border-b border-slate-100 bg-slate-50/50 text-[11px] font-semibold uppercase tracking-wider text-hope-muted">
+    <thead
+      className={cn(
+        'border-b border-slate-100 bg-slate-50/50 text-[11px] font-semibold uppercase tracking-wider text-hope-muted',
+        className,
+      )}
+    >
       {children}
     </thead>
   );

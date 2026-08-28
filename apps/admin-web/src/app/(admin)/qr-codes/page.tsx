@@ -7,7 +7,8 @@ import { PageHeader } from '@/components/PageHeader';
 import { StatusChip } from '@/components/StatusChip';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/Table';
+import { TD } from '@/components/ui/Table';
+import { VirtualizedTable } from '@/components/ui/VirtualizedTable';
 import { useEffect, useState } from 'react';
 import { api, getToken } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -109,44 +110,39 @@ export default function QrCodesPage() {
       </PageCard>
 
       <PageCard title={`Recent QR codes (${items.length})`} noPadding>
-        <Table>
-          <THead>
-            <TR>
-              <TH>Serial</TH>
-              <TH>Batch</TH>
-              <TH>Status</TH>
-              <TH>URL</TH>
-              <TH className="text-right">Actions</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {items.map((qr) => (
-              <TR key={qr.id}>
-                <TD>{qr.productUnit?.serial?.serialNumber ?? '—'}</TD>
-                <TD>{qr.productUnit?.batch?.batchCode ?? '—'}</TD>
-                <TD><StatusChip status={qr.status} /></TD>
-                <TD className="max-w-[280px] truncate">
-                  <span className="text-xs">{qr.url}</span>
-                </TD>
-                <TD className="text-right">
-                  {qr.status === 'ACTIVE' && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={async () => {
-                        await api.updateQrStatus(tenantId, qr.id, 'REVOKED', 'Admin revoked');
-                        setMessage('QR revoked');
-                        load(tenantId);
-                      }}
-                    >
-                      Revoke
-                    </Button>
-                  )}
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <VirtualizedTable
+          columns={['Serial', 'Batch', 'Status', 'URL', 'Actions']}
+          rows={items}
+          rowKey={(qr) => qr.id}
+          columnClassNames={[undefined, undefined, undefined, undefined, 'text-right']}
+          renderRow={(qr) => (
+            <>
+              <TD>{qr.productUnit?.serial?.serialNumber ?? '—'}</TD>
+              <TD>{qr.productUnit?.batch?.batchCode ?? '—'}</TD>
+              <TD>
+                <StatusChip status={qr.status} />
+              </TD>
+              <TD className="max-w-[280px] truncate">
+                <span className="text-xs">{qr.url}</span>
+              </TD>
+              <TD className="text-right">
+                {qr.status === 'ACTIVE' && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={async () => {
+                      await api.updateQrStatus(tenantId, qr.id, 'REVOKED', 'Admin revoked');
+                      setMessage('QR revoked');
+                      load(tenantId);
+                    }}
+                  >
+                    Revoke
+                  </Button>
+                )}
+              </TD>
+            </>
+          )}
+        />
       </PageCard>
     </>
   );

@@ -7,10 +7,11 @@ import { PageHeader } from '@/components/PageHeader';
 import { StatusChip } from '@/components/StatusChip';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Input';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/Table';
+import { TD } from '@/components/ui/Table';
+import { VirtualizedTable } from '@/components/ui/VirtualizedTable';
 import { StatCard } from '@/components/StatCard';
 import Link from 'next/link';
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, RefreshCw } from 'lucide-react';
 import { api, getToken, Tenant } from '@/lib/api';
@@ -23,6 +24,28 @@ const DEPLOYMENT_HELP: Record<string, string> = {
   ON_PREM: 'Dedicated deployment — customer datacenter',
   HYBRID: 'Dedicated deployment — on-prem core + optional cloud AI',
 };
+
+type OrganizationTableRow =
+  | { kind: 'tenant'; tenant: Tenant }
+  | {
+      kind: 'catalog';
+      tenantId: string;
+      catalog: NonNullable<Awaited<ReturnType<typeof api.getCatalogStats>>>;
+    };
+
+function buildOrganizationRows(
+  tenants: Tenant[],
+  expandedTenantId: string | null,
+  tenantCatalog: Awaited<ReturnType<typeof api.getCatalogStats>> | null,
+): OrganizationTableRow[] {
+  return tenants.flatMap((tenant) => {
+    const rows: OrganizationTableRow[] = [{ kind: 'tenant', tenant }];
+    if (expandedTenantId === tenant.id && tenantCatalog) {
+      rows.push({ kind: 'catalog', tenantId: tenant.id, catalog: tenantCatalog });
+    }
+    return rows;
+  });
+}
 
 export default function OrganizationsPage() {
   useAuthGuard();
@@ -120,6 +143,11 @@ export default function OrganizationsPage() {
     setTenantCatalog(await api.getCatalogStats(tenantId));
   }
 
+  const tableRows = useMemo(
+    () => buildOrganizationRows(tenants, expandedTenantId, tenantCatalog),
+    [tenants, expandedTenantId, tenantCatalog],
+  );
+
   return (
     <>
       <PageHeader
@@ -204,113 +232,106 @@ export default function OrganizationsPage() {
         <PageSkeleton />
       ) : (
         <PageCard noPadding>
-          <Table>
-            <THead>
-              <TR>
-                <TH>Company</TH>
-                <TH>Status</TH>
-                <TH>Deployment</TH>
-                <TH>Commercial</TH>
-                <TH>Catalog</TH>
-                <TH>License until</TH>
-                <TH className="text-right" />
-              </TR>
-            </THead>
-            <TBody>
-              {tenants.map((t) => {
-                const lic = licenseFor(t.id);
-                const catalog = catalogFor(t.id);
+          <VirtualizedTable
+            columns={['Company', 'Status', 'Deployment', 'Commercial', 'Catalog', 'License until', '']}
+            rows={tableRows}
+            rowKey={(row) =>
+              row.kind === 'tenant' ? row.tenant.id : `${row.tenantId}-catalog`
+            }
+            columnClassNames={[undefined, undefined, undefined, undefined, undefined, undefined, 'text-right']}
+            getRowHeight={(row) => (row.kind === 'catalog' ? 220 : 56)}
+            maxHeight={560}
+            renderRow={(row) => {
+              if (row.kind === 'catalog') {
                 return (
-                  <Fragment key={t.id}>
-                  <TR>
-                    <TD>
-                      <p className="font-semibold text-hope-dark">{t.name}</p>
-                      {t.legalName && (
-                        <p className="text-xs text-hope-secondary">{t.legalName}</p>
-                      )}
-                    </TD>
-                    <TD>
-                      <StatusChip status={t.status} />
-                    </TD>
-                    <TD>{t.deploymentType}</TD>
-                    <TD>{lic?.commercialModel ?? '—'}</TD>
-                    <TD>
-                      {catalog ? (
-                        <span className="text-xs text-hope-secondary">
-                          {catalog.categories} cat · {catalog.productTypes} types · {catalog.variants} variants
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </TD>
-                    <TD>
-                      {lic ? new Date(lic.validUntil).toLocaleDateString() : '—'}
-                    </TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => showTenantCatalog(t.id)}>
-                          {expandedTenantId === t.id ? 'Hide' : 'Catalog'}
-                        </Button>
-                        {lic && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                              const next = new Date(lic.validUntil);
-                              next.setFullYear(next.getFullYear() + 1);
-                              await api.renewPlatformLicense(
-                                t.id,
-                                next.toISOString().slice(0, 10),
-                              );
-                              setMessage(`License renewed for ${t.name}`);
-                              load();
-                            }}
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                            Renew
-                          </Button>
-                        )}
-                        <Link href={`/domains?tenantId=${t.id}`}>
-                          <Button variant="ghost" size="sm">
-                            Domains
-                          </Button>
-                        </Link>
-                      </div>
-                    </TD>
-                  </TR>
-                  {expandedTenantId === t.id && tenantCatalog && (
-                    <TR key={`${t.id}-catalog`}>
-                      <TD colSpan={7}>
-                        <div className="rounded-lg bg-slate-50 p-4 text-sm">
-                          <p className="mb-2 font-semibold text-hope-dark">
-                            {tenantCatalog.tenantName} — {tenantCatalog.totals.categories} categories ·{' '}
-                            {tenantCatalog.totals.productTypes} product types ·{' '}
-                            {tenantCatalog.totals.variants} variants
+                  <TD colSpan={7}>
+                    <div className="rounded-lg bg-slate-50 p-4 text-sm">
+                      <p className="mb-2 font-semibold text-hope-dark">
+                        {row.catalog.tenantName} — {row.catalog.totals.categories} categories ·{' '}
+                        {row.catalog.totals.productTypes} product types ·{' '}
+                        {row.catalog.totals.variants} variants
+                      </p>
+                      {row.catalog.categories.map((category) => (
+                        <div key={category.id} className="mb-3">
+                          <p className="font-medium">
+                            {category.name} → {category.productTypeCount} product types →{' '}
+                            {category.variantCount} variants
                           </p>
-                          {tenantCatalog.categories.map((category) => (
-                            <div key={category.id} className="mb-3">
-                              <p className="font-medium">
-                                {category.name} → {category.productTypeCount} product types →{' '}
-                                {category.variantCount} variants
-                              </p>
-                              <ul className="mt-1 pl-4 text-hope-secondary">
-                                {category.productTypes.map((pt) => (
-                                  <li key={pt.id}>
-                                    {pt.name} ({pt.variantCount} variants)
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ))}
+                          <ul className="mt-1 pl-4 text-hope-secondary">
+                            {category.productTypes.map((pt) => (
+                              <li key={pt.id}>
+                                {pt.name} ({pt.variantCount} variants)
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                      </TD>
-                    </TR>
-                  )}
-                  </Fragment>
+                      ))}
+                    </div>
+                  </TD>
                 );
-              })}
-            </TBody>
-          </Table>
+              }
+
+              const t = row.tenant;
+              const lic = licenseFor(t.id);
+              const catalog = catalogFor(t.id);
+
+              return (
+                <>
+                  <TD>
+                    <p className="font-semibold text-hope-dark">{t.name}</p>
+                    {t.legalName && <p className="text-xs text-hope-secondary">{t.legalName}</p>}
+                  </TD>
+                  <TD>
+                    <StatusChip status={t.status} />
+                  </TD>
+                  <TD>{t.deploymentType}</TD>
+                  <TD>{lic?.commercialModel ?? '—'}</TD>
+                  <TD>
+                    {catalog ? (
+                      <span className="text-xs text-hope-secondary">
+                        {catalog.categories} cat · {catalog.productTypes} types · {catalog.variants}{' '}
+                        variants
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </TD>
+                  <TD>{lic ? new Date(lic.validUntil).toLocaleDateString() : '—'}</TD>
+                  <TD className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => showTenantCatalog(t.id)}>
+                        {expandedTenantId === t.id ? 'Hide' : 'Catalog'}
+                      </Button>
+                      {lic && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            const next = new Date(lic.validUntil);
+                            next.setFullYear(next.getFullYear() + 1);
+                            await api.renewPlatformLicense(
+                              t.id,
+                              next.toISOString().slice(0, 10),
+                            );
+                            setMessage(`License renewed for ${t.name}`);
+                            load();
+                          }}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Renew
+                        </Button>
+                      )}
+                      <Link href={`/domains?tenantId=${t.id}`}>
+                        <Button variant="ghost" size="sm">
+                          Domains
+                        </Button>
+                      </Link>
+                    </div>
+                  </TD>
+                </>
+              );
+            }}
+          />
         </PageCard>
       )}
     </>

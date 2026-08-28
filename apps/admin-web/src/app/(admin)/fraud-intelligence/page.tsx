@@ -1,11 +1,10 @@
 'use client';
 
 import { PageSkeleton } from '@/components/PageSkeleton';
-import { DataTable } from '@/components/DataTable';
+import { DataTable, TD } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
 import { StatCard } from '@/components/StatCard';
 import { StatusChip } from '@/components/StatusChip';
-import { TR, TD } from '@/components/ui/Table';
 import { useEffect, useState } from 'react';
 import { api, getToken } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -67,36 +66,40 @@ export default function FraudIntelligencePage() {
       )}
 
       {alerts.length > 0 && (
-        <DataTable title="Active alerts" columns={['Type', 'Severity', 'Verification', 'Time']}>
-          {alerts.map((a) => (
-            <TR key={a.id}>
+        <DataTable
+          title="Active alerts"
+          columns={['Type', 'Severity', 'Verification', 'Time']}
+          rows={alerts}
+          rowKey={(a) => a.id}
+          renderRow={(a) => (
+            <>
               <TD>{a.signalType}</TD>
               <TD>
                 <StatusChip status={a.severity} />
               </TD>
               <TD>{a.verificationEvent?.publicId ?? '—'}</TD>
               <TD>{new Date(a.createdAt).toLocaleString()}</TD>
-            </TR>
-          ))}
-        </DataTable>
+            </>
+          )}
+        />
       )}
 
       <DataTable
         title="Recent signals"
         columns={['Type', 'Severity', 'Time']}
-        isEmpty={signals.length === 0}
+        rows={signals}
+        rowKey={(s) => s.id}
         emptyMessage="No fraud signals recorded."
-      >
-        {signals.map((s) => (
-          <TR key={s.id}>
+        renderRow={(s) => (
+          <>
             <TD>{s.signalType}</TD>
             <TD>
               <StatusChip status={s.severity} />
             </TD>
             <TD>{new Date(s.createdAt).toLocaleString()}</TD>
-          </TR>
-        ))}
-      </DataTable>
+          </>
+        )}
+      />
     </>
   );
 }

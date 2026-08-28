@@ -1,10 +1,9 @@
 'use client';
 
 import { PageSkeleton } from '@/components/PageSkeleton';
-import { DataTable } from '@/components/DataTable';
+import { DataTable, TD } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
 import { Input } from '@/components/ui/Input';
-import { TR, TD } from '@/components/ui/Table';
 import { useEffect, useState } from 'react';
 import { api, getToken } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -58,11 +57,11 @@ export default function AuditLogPage() {
       </div>
       <DataTable
         columns={['Time', 'Action', 'Resource', 'User']}
-        isEmpty={items.length === 0}
+        rows={items}
+        rowKey={(row) => row.id}
         emptyMessage="No audit entries match your filter."
-      >
-        {items.map((row) => (
-          <TR key={row.id}>
+        renderRow={(row) => (
+          <>
             <TD>{new Date(row.createdAt).toLocaleString()}</TD>
             <TD>{row.action}</TD>
             <TD>
@@ -70,9 +69,9 @@ export default function AuditLogPage() {
               {row.resourceId ? ` · ${row.resourceId.slice(0, 8)}…` : ''}
             </TD>
             <TD>{row.user?.email ?? '—'}</TD>
-          </TR>
-        ))}
-      </DataTable>
+          </>
+        )}
+      />
     </>
   );
 }

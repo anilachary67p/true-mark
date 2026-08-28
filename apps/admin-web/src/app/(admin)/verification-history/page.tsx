@@ -2,10 +2,9 @@
 
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { FeedbackAlert } from '@/components/FeedbackAlert';
-import { DataTable } from '@/components/DataTable';
+import { DataTable, TD } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
 import { DateRangePicker, getDefaultDateRange } from '@/components/DateRangePicker';
-import { TR, TD } from '@/components/ui/Table';
 import { useCallback, useEffect, useState } from 'react';
 import { api, getToken } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -71,19 +70,19 @@ export default function VerificationHistoryPage() {
       ) : (
         <DataTable
           columns={['Time', 'Result', 'Method', 'Serial', 'Risk']}
-          isEmpty={items.length === 0}
+          rows={items}
+          rowKey={(e) => e.publicId}
           emptyMessage="No verification events in this date range."
-        >
-          {items.map((e) => (
-            <TR key={e.publicId}>
+          renderRow={(e) => (
+            <>
               <TD>{new Date(e.createdAt).toLocaleString()}</TD>
               <TD>{e.result}</TD>
               <TD>{e.method}</TD>
               <TD>{e.serial ?? '—'}</TD>
               <TD>{e.riskLevel ?? '—'}</TD>
-            </TR>
-          ))}
-        </DataTable>
+            </>
+          )}
+        />
       )}
     </>
   );
