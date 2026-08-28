@@ -1,0 +1,143 @@
+# TrueMark API — OpenAPI 3.0 (summary)
+
+> Full interactive docs: Swagger UI at `http://localhost:3001/api/docs` when API is running.  
+> Human-readable reference: [API_REFERENCE.md](./API_REFERENCE.md)
+
+openapi: 3.0.3
+info:
+  title: TrueMark API
+  version: 1.0.0
+  description: Enterprise product authentication and anti-counterfeit platform
+
+servers:
+  - url: http://localhost:3001/api/v1
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [health]
+      responses:
+        '200':
+          description: Service healthy
+
+  /public/verify/qr:
+    post:
+      summary: Verify product by QR URL
+      tags: [public-verification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                location:
+                  $ref: '#/components/schemas/Location'
+      responses:
+        '200':
+          description: Verification result
+
+  /public/verify/code:
+    post:
+      summary: Verify product by manual code
+      tags: [public-verification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                location:
+                  $ref: '#/components/schemas/Location'
+      responses:
+        '200':
+          description: Verification result
+
+  /admin/auth/login:
+    post:
+      summary: Admin login
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: JWT access token
+
+  /admin/tenants:
+    get:
+      summary: List tenants
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tenant list
+    post:
+      summary: Create tenant
+      tags: [tenants]
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Tenant created
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Location:
+      type: object
+      properties:
+        country:
+          type: string
+        region:
+          type: string
+        city:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        source:
+          type: string
+          enum: [GPS, IP, NETWORK, MANUAL, UNKNOWN]
+
+    VerificationResult:
+      type: string
+      enum:
+        - VERIFIED
+        - REVERIFIED
+        - SUSPICIOUS
+        - POSSIBLE_CLONE
+        - POSSIBLE_COUNTERFEIT
+        - INVALID_QR
+        - UNKNOWN_QR
+        - REVOKED_QR
+        - BLOCKED_QR
+        - EXPIRED
+        - RECALLED
+        - UNABLE_TO_VERIFY

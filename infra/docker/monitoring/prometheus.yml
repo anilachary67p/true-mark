@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: truemark-api
+    metrics_path: /health
+    static_configs:
+      - targets: ['api:3001']

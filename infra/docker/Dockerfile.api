@@ -1,0 +1,28 @@
+FROM node:22-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/config/package.json ./packages/config/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/db/package.json ./packages/db/
+RUN pnpm install --frozen-lockfile || pnpm install
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm db:generate && pnpm --filter @truemark/config build && pnpm --filter @truemark/shared build && pnpm --filter @truemark/db build && pnpm --filter @truemark/api build
+
+FROM node:22-alpine AS runner
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 truemark
+WORKDIR /app
+USER truemark
+COPY --from=builder --chown=truemark:nodejs /app/apps/api/dist ./dist
+COPY --from=builder --chown=truemark:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=truemark:nodejs /app/packages ./packages
+EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3001/api/v1/health || exit 1
+CMD ["node", "dist/main.js"]

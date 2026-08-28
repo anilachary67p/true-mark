@@ -1,0 +1,27 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "truemark.fullname" . }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{- if eq .service "api" }} {{ include "truemark.fullname" $ }}-api{{- else if eq .service "adminWeb" }} {{ include "truemark.fullname" $ }}-admin-web{{- else }} {{ .service }}{{- end }}
+                port:
+                  number: {{- if eq .service "api" }} {{ $.Values.api.service.port }}{{- else if eq .service "adminWeb" }} {{ $.Values.adminWeb.service.port }}{{- else }} 80{{- end }}
+          {{- end }}
+    {{- end }}
+{{- end }}

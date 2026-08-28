@@ -1,0 +1,15 @@
+{{- if .Values.adminWeb.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "truemark.fullname" . }}-admin-web
+spec:
+  type: {{ .Values.adminWeb.service.type }}
+  selector:
+    app: truemark-admin-web
+  ports:
+    - port: {{ .Values.adminWeb.service.port }}
+      targetPort: 3000
+      protocol: TCP
+      name: http
+{{- end }}

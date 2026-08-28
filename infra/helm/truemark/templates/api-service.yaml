@@ -1,0 +1,15 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "truemark.fullname" . }}-api
+spec:
+  type: {{ .Values.api.service.type }}
+  selector:
+    app: truemark-api
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: 3001
+      protocol: TCP
+      name: http
+{{- end }}

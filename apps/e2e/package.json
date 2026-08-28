@@ -1,0 +1,15 @@
+{
+  "name": "@truemark/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  },
+  "dependencies": {
+    "@truemark/shared": "workspace:*"
+  }
+}

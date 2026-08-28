@@ -1,0 +1,27 @@
+{
+  "name": "true-mark",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:e2e": "pnpm --filter @truemark/e2e test",
+    "load-test": "node scripts/load-test-verify.mjs",
+    "dr-drill": "bash scripts/dr-drill-local.sh",
+    "db:generate": "pnpm --filter @truemark/db generate",
+    "db:migrate": "pnpm --filter @truemark/db migrate",
+    "db:push": "pnpm --filter @truemark/db push",
+    "db:seed": "pnpm --filter @truemark/db seed",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

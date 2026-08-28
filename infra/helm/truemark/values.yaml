@@ -1,0 +1,220 @@
+# TrueMark Helm Chart — Default Values
+# Override with values-production.yaml for cloud deployments
+
+global:
+  environment: development
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# ─── API (NestJS) ────────────────────────────────────────────────────────────
+
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: truemark/api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3001
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+  env:
+    NODE_ENV: production
+    API_PORT: "3001"
+    API_HOST: "0.0.0.0"
+    AUTH_MODE: oidc
+    STORAGE_PROVIDER: s3
+    AI_PROVIDER: mock
+    RATE_LIMIT_VERIFY_PER_MIN: "60"
+    RATE_LIMIT_AI_PER_MIN: "10"
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 15
+  readinessProbe:
+    path: /health/ready
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: truemark-api
+
+# ─── Admin Web (Next.js) ─────────────────────────────────────────────────────
+
+adminWeb:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: truemark/admin-web
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    NEXT_PUBLIC_API_URL: "http://truemark-api:3001"
+
+# ─── Worker (BullMQ) ─────────────────────────────────────────────────────────
+
+worker:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: truemark/api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  nodeSelector:
+    role: worker
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: worker
+      effect: NoSchedule
+
+# ─── Ingress ─────────────────────────────────────────────────────────────────
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  hosts:
+    - host: api.truemark.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: api
+    - host: admin.truemark.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: adminWeb
+  tls: []
+
+# ─── External Database (RDS) ─────────────────────────────────────────────────
+# Disable embedded PostgreSQL when using managed RDS
+
+postgresql:
+  enabled: false
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: truemark
+  username: truemark_admin
+  existingSecret: truemark-db-credentials
+  secretKey: DATABASE_URL
+
+# ─── External Redis (ElastiCache) ────────────────────────────────────────────
+# Disable embedded Redis when using managed ElastiCache
+
+redis:
+  enabled: false
+
+externalRedis:
+  host: ""
+  port: 6379
+  existingSecret: truemark-redis-credentials
+  secretKey: REDIS_URL
+
+# ─── Object Storage ────────────────────────────────────────────────────────────
+
+storage:
+  provider: s3
+  s3:
+    bucket: ""
+    region: us-east-1
+  minio:
+    endpoint: ""
+    port: 9000
+    bucket: truemark
+    useSSL: true
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+
+secrets:
+  provider: kubernetes
+  jwtSecretKey: truemark-jwt-secret
+  aiApiKeySecret: truemark-ai-api-key
+  oidcClientSecret: truemark-oidc-client-secret
+
+# ─── Migrations ──────────────────────────────────────────────────────────────
+
+migrations:
+  enabled: true
+  hook: pre-install,pre-upgrade
+  backoffLimit: 3
+
+# ─── Monitoring ──────────────────────────────────────────────────────────────
+
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+  prometheusRule:
+    enabled: false
+
+# ─── Pod Security ────────────────────────────────────────────────────────────
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ─── Network Policy ──────────────────────────────────────────────────────────
+
+networkPolicy:
+  enabled: false
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+  egress:
+    - to:
+        - namespaceSelector: {}
+
+# ─── Resource Quotas ─────────────────────────────────────────────────────────
+
+resources:
+  limits:
+    maxCpu: "8"
+    maxMemory: "16Gi"

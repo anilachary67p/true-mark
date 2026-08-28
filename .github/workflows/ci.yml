@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: truemark
+          POSTGRES_PASSWORD: truemark
+          POSTGRES_DB: truemark
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://truemark:truemark@localhost:5432/truemark?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci_test_jwt_secret_minimum_32_chars_long
+      AUTH_MODE: dev
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Push database schema
+        run: pnpm db:push
+
+      - name: Seed database
+        run: pnpm db:seed
+
+      - name: Build packages
+        run: |
+          pnpm --filter @truemark/config build
+          pnpm --filter @truemark/shared build
+          pnpm --filter @truemark/db build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build API
+        run: pnpm --filter @truemark/api build
+
+      - name: Run tests
+        run: pnpm --filter @truemark/api test
+
+      - name: Build admin web
+        run: pnpm --filter @truemark/admin-web build
+
+      - name: Build consumer web
+        env:
+          NEXT_PUBLIC_VERIFY_HOSTNAME: verify.localhost
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+        run: pnpm --filter @truemark/consumer-web build
+
+      - name: Install Playwright
+        run: pnpm --filter @truemark/e2e exec playwright install chromium --with-deps
+
+      - name: E2E, load test, and DR drill
+        env:
+          API_URL: http://localhost:3001
+          NEXT_PUBLIC_VERIFY_HOSTNAME: verify.localhost
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+        run: |
+          pnpm --filter @truemark/api start &
+          pnpm --filter @truemark/admin-web start &
+          NEXT_PUBLIC_VERIFY_HOSTNAME=verify.localhost NEXT_PUBLIC_API_URL=http://localhost:3001 \
+            pnpm --filter @truemark/consumer-web start &
+          sleep 10
+          pnpm test:e2e
+          LOAD_CONCURRENCY=5 LOAD_DURATION_SEC=5 LOAD_P95_MS_MAX=2000 node scripts/load-test-verify.mjs
+          bash scripts/dr-drill-local.sh
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high || true
