@@ -213,11 +213,12 @@ NODE_ENV=production NEXT_PUBLIC_VERIFY_HOSTNAME=verify.localhost \
 | **Consumer Web**         | [docs/web/CONSUMER_WEB.md](docs/web/CONSUMER_WEB.md)                             |
 | **API**                  | [docs/api/API_REFERENCE.md](docs/api/API_REFERENCE.md)                           |
 | **Database**             | [docs/database/DATABASE.md](docs/database/DATABASE.md)                           |
+| **Production setup**     | [docs/deployment/PRODUCTION_SETUP_GUIDE.md](docs/deployment/PRODUCTION_SETUP_GUIDE.md) |
 | **Deployment**           | [docs/deployment/DEPLOYMENT_OVERVIEW.md](docs/deployment/DEPLOYMENT_OVERVIEW.md) |
 | **Docker**               | [docs/docker/DOCKER.md](docs/docker/DOCKER.md)                                   |
 | **Kubernetes / Helm**    | [docs/helm/KUBERNETES.md](docs/helm/KUBERNETES.md)                               |
 | **Terraform (AWS)**      | [docs/terraform/AWS.md](docs/terraform/AWS.md)                                   |
-| **Azure**                | [docs/azure/AZURE.md](docs/azure/AZURE.md) _(planned)_                           |
+| **Azure**                | [docs/deployment/PRODUCTION_SETUP_GUIDE.md](docs/deployment/PRODUCTION_SETUP_GUIDE.md) · [docs/runbooks/azure-deploy.md](docs/runbooks/azure-deploy.md) |
 | **On-premises**          | [docs/on-prem/INSTALL.md](docs/on-prem/INSTALL.md)                               |
 | **Architecture**         | [docs/architecture/SYSTEM.md](docs/architecture/SYSTEM.md)                       |
 | **Security**             | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)                                     |
@@ -229,6 +230,7 @@ NODE_ENV=production NEXT_PUBLIC_VERIFY_HOSTNAME=verify.localhost \
 
 | Target            | Guide                                                                                           |
 | ----------------- | ----------------------------------------------------------------------------------------------- |
+| **On-prem / Azure** | [Production Setup Guide](docs/deployment/PRODUCTION_SETUP_GUIDE.md)                           |
 | AWS cloud         | [docs/terraform/AWS.md](docs/terraform/AWS.md) · [Cloud runbook](docs/runbooks/cloud-deploy.md) |
 | On-premises       | [docs/on-prem/INSTALL.md](docs/on-prem/INSTALL.md)                                              |
 | Kubernetes        | [docs/helm/KUBERNETES.md](docs/helm/KUBERNETES.md)                                              |
