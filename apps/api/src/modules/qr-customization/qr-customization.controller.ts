@@ -30,8 +30,9 @@ export class QrCustomizationController {
 
   @Get()
   @Roles(UserRole.PLATFORM_ADMIN, UserRole.TENANT_ADMIN, UserRole.PRODUCT_MANAGER)
-  get(@TenantId() tenantId: string) {
-    return this.service.getActive(tenantId);
+  async get(@TenantId() tenantId: string) {
+    const active = await this.service.getActive(tenantId);
+    return active ?? { config: null, version: 0 };
   }
 
   @Post()

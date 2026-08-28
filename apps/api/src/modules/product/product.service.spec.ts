@@ -10,13 +10,15 @@ describe('ProductService', () => {
   let service: ProductService;
   let prisma: {
     client: {
-      manufacturer: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock };
-      brand: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock };
-      product: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock };
-      productVariant: { create: jest.Mock; findFirst: jest.Mock };
+      category: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock };
+      productType: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock };
+      productVariant: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock };
+      tag: { upsert: jest.Mock };
+      productVariantTag: { upsert: jest.Mock };
       batch: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
       productUnit: { findFirst: jest.Mock; findMany: jest.Mock; count: jest.Mock; update: jest.Mock };
       bulkJob: { create: jest.Mock; findFirst: jest.Mock };
+      tenant: { findUnique: jest.Mock };
       $transaction: jest.Mock;
     };
   };
@@ -29,40 +31,60 @@ describe('ProductService', () => {
 
   beforeEach(() => {
     audit = { log: jest.fn().mockResolvedValue({}) };
-    unitGeneration = { generateUnits: jest.fn().mockResolvedValue([{ productUnitId: 'u1', serialNumber: 'SN-ABC-2026-000001', tokenPrefix: 'TM-ABCD' }]) };
+    unitGeneration = {
+      generateUnits: jest
+        .fn()
+        .mockResolvedValue([{ productUnitId: 'u1', serialNumber: 'SN-ABC-2026-000001', tokenPrefix: 'TM-ABCD' }]),
+    };
     qrService = { generateMissingForBatch: jest.fn().mockResolvedValue({ created: 1 }) };
 
     prisma = {
       client: {
-        manufacturer: {
-          create: jest.fn().mockResolvedValue({ id: 'm1', tenantId: tenantA, name: 'Mfg', status: LifecycleStatus.ACTIVE }),
-          findFirst: jest.fn().mockResolvedValue({ id: 'm1', tenantId: tenantA }),
+        category: {
+          create: jest.fn().mockResolvedValue({ id: 'c1', tenantId: tenantA, name: 'Personal Care', status: LifecycleStatus.ACTIVE }),
+          findFirst: jest.fn().mockResolvedValue({ id: 'c1', tenantId: tenantA }),
           findMany: jest.fn().mockResolvedValue([]),
         },
-        brand: {
-          create: jest.fn().mockResolvedValue({ id: 'b1', tenantId: tenantA, manufacturerId: 'm1', name: 'Brand' }),
-          findFirst: jest.fn().mockResolvedValue({ id: 'b1', tenantId: tenantA, manufacturerId: 'm1' }),
-          findMany: jest.fn().mockResolvedValue([]),
-        },
-        product: {
-          create: jest.fn().mockResolvedValue({ id: 'p1', tenantId: tenantA, status: LifecycleStatus.DRAFT, metadata: {} }),
+        productType: {
+          create: jest.fn().mockResolvedValue({ id: 'pt1', tenantId: tenantA, categoryId: 'c1', name: 'Shampoo A' }),
           findFirst: jest.fn().mockResolvedValue({
-            id: 'p1',
+            id: 'pt1',
             tenantId: tenantA,
-            status: LifecycleStatus.DRAFT,
+            categoryId: 'c1',
+            status: LifecycleStatus.ACTIVE,
             metadata: {},
-            brand: {},
+            category: {},
             variants: [],
           }),
           findMany: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockImplementation(({ data }) =>
-            Promise.resolve({ id: 'p1', tenantId: tenantA, ...data, metadata: {} }),
+            Promise.resolve({ id: 'pt1', tenantId: tenantA, ...data, metadata: {} }),
           ),
         },
         productVariant: {
-          create: jest.fn().mockResolvedValue({ id: 'v1', tenantId: tenantA, productId: 'p1' }),
-          findFirst: jest.fn().mockResolvedValue({ id: 'v1', tenantId: tenantA, productId: 'p1', product: {}, batches: [] }),
+          create: jest.fn().mockResolvedValue({
+            id: 'v1',
+            tenantId: tenantA,
+            productTypeId: 'pt1',
+            productCode: 'TM-ABCD1234',
+          }),
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'v1',
+            tenantId: tenantA,
+            productTypeId: 'pt1',
+            status: LifecycleStatus.DRAFT,
+            metadata: {},
+            productType: { category: {} },
+            batches: [],
+            tags: [],
+          }),
+          findMany: jest.fn().mockResolvedValue([]),
+          update: jest.fn().mockImplementation(({ data }) =>
+            Promise.resolve({ id: 'v1', tenantId: tenantA, ...data, metadata: {} }),
+          ),
         },
+        tag: { upsert: jest.fn().mockResolvedValue({ id: 'tag-1' }) },
+        productVariantTag: { upsert: jest.fn().mockResolvedValue({}) },
         batch: {
           create: jest.fn().mockResolvedValue({ id: 'batch-1', tenantId: tenantA, batchCode: 'B1', status: LifecycleStatus.DRAFT, metadata: {} }),
           findFirst: jest.fn().mockResolvedValue({
@@ -70,7 +92,7 @@ describe('ProductService', () => {
             tenantId: tenantA,
             status: LifecycleStatus.DRAFT,
             metadata: {},
-            productVariant: { product: { brand: { manufacturer: {} } } },
+            productVariant: { productType: { category: {} }, tags: [] },
           }),
           findMany: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockImplementation(({ data }) =>
@@ -88,6 +110,7 @@ describe('ProductService', () => {
           create: jest.fn().mockResolvedValue({ id: 'job-1', status: BulkJobStatus.PENDING }),
           findFirst: jest.fn().mockResolvedValue({ id: 'job-1', tenantId: tenantA, status: BulkJobStatus.COMPLETED }),
         },
+        tenant: { findUnique: jest.fn().mockResolvedValue({ id: tenantA, name: 'Tenant A' }) },
         $transaction: jest.fn((fn) => fn(prisma.client)),
       },
     };
@@ -100,38 +123,40 @@ describe('ProductService', () => {
     );
   });
 
-  describe('createBrand', () => {
-    it('rejects brand when manufacturer not in tenant', async () => {
-      prisma.client.manufacturer.findFirst.mockResolvedValue(null);
-      await expect(service.createBrand(tenantA, 'other-mfg', 'Brand', userId)).rejects.toThrow(NotFoundException);
+  describe('createProductType', () => {
+    it('rejects product type when category not in tenant', async () => {
+      prisma.client.category.findFirst.mockResolvedValue(null);
+      await expect(service.createProductType(tenantA, 'other-cat', 'Shampoo A', userId)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
-    it('audits brand creation', async () => {
-      await service.createBrand(tenantA, 'm1', 'Brand', userId);
-      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'BRAND_CREATED' }));
+    it('audits product type creation', async () => {
+      await service.createProductType(tenantA, 'c1', 'Shampoo A', userId);
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'PRODUCT_TYPE_CREATED' }));
     });
   });
 
   describe('createBatch', () => {
     it('rejects duplicate batch code', async () => {
       prisma.client.batch.create.mockRejectedValue({ code: 'P2002' });
-      await expect(
-        service.createBatch(tenantA, 'v1', 'BATCH-DUP', {}, userId),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.createBatch(tenantA, 'v1', 'BATCH-DUP', {}, userId)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 
-  describe('updateProductStatus', () => {
+  describe('updateVariantStatus', () => {
     it('allows DRAFT → ACTIVE', async () => {
-      const result = await service.updateProductStatus(tenantA, 'p1', LifecycleStatus.ACTIVE, userId);
+      const result = await service.updateVariantStatus(tenantA, 'v1', LifecycleStatus.ACTIVE, userId);
       expect(result.status).toBe(LifecycleStatus.ACTIVE);
-      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'PRODUCT_STATUS_CHANGED' }));
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'VARIANT_STATUS_CHANGED' }));
     });
 
     it('rejects invalid transition', async () => {
-      await expect(
-        service.updateProductStatus(tenantA, 'p1', LifecycleStatus.REVOKED, userId),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.updateVariantStatus(tenantA, 'v1', LifecycleStatus.REVOKED, userId)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -159,9 +184,9 @@ describe('ProductService', () => {
   });
 
   describe('cross-tenant isolation', () => {
-    it('returns not found when product belongs to another tenant', async () => {
-      prisma.client.product.findFirst.mockResolvedValue(null);
-      await expect(service.getProduct('tenant-b', 'p1')).rejects.toThrow(NotFoundException);
+    it('returns not found when product type belongs to another tenant', async () => {
+      prisma.client.productType.findFirst.mockResolvedValue(null);
+      await expect(service.getProductType('tenant-b', 'pt1')).rejects.toThrow(NotFoundException);
     });
   });
 });

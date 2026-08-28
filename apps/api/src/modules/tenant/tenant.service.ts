@@ -1,9 +1,12 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { DeploymentType, TenantStatus, UserRole } from '@truemark/db';
+import { LicenseCommercialModel } from '@truemark/shared';
 import { PrismaService } from '../../providers/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { LicenseService } from '../license/license.service';
 
 export interface UpdateTenantProfileInput {
+  companyDisplayName?: string;
   address?: string;
   country?: string;
   contactEmail?: string;
@@ -15,10 +18,18 @@ export class TenantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(forwardRef(() => LicenseService))
+    private readonly licenseService: LicenseService,
   ) {}
 
   async create(
-    data: { name: string; legalName?: string; deploymentType?: DeploymentType },
+    data: {
+      name: string;
+      legalName?: string;
+      deploymentType?: DeploymentType;
+      commercialModel?: LicenseCommercialModel;
+      licenseValidDays?: number;
+    },
     userId: string,
     correlationId?: string,
     ipAddress?: string,
@@ -45,6 +56,18 @@ export class TenantService {
       after: tenant,
       correlationId,
       ipAddress,
+    });
+
+    const validDays = data.licenseValidDays ?? 365;
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + validDays);
+
+    await this.licenseService.issueLicense({
+      tenantId: tenant.id,
+      organizationName: tenant.name,
+      deploymentType: tenant.deploymentType,
+      commercialModel: data.commercialModel ?? LicenseCommercialModel.FULL_PRODUCT,
+      validUntil,
     });
 
     return tenant;
@@ -100,7 +123,12 @@ export class TenantService {
 
   async update(
     id: string,
-    data: Partial<{ name: string; legalName: string; status: TenantStatus; deploymentType: DeploymentType }>,
+    data: Partial<{
+      name: string;
+      legalName: string;
+      status: TenantStatus;
+      deploymentType: DeploymentType;
+    }>,
     userId: string,
     userRoles: UserRole[],
     tenantIds: string[],
@@ -162,12 +190,14 @@ export class TenantService {
       where: { tenantId },
       create: {
         tenantId,
+        companyDisplayName: data.companyDisplayName,
         address: data.address,
         country: data.country,
         contactEmail: data.contactEmail,
         metadata: (data.metadata ?? {}) as object,
       },
       update: {
+        companyDisplayName: data.companyDisplayName,
         address: data.address,
         country: data.country,
         contactEmail: data.contactEmail,

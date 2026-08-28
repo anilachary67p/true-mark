@@ -40,11 +40,11 @@ api:
     RATE_LIMIT_VERIFY_PER_MIN: "60"
     RATE_LIMIT_AI_PER_MIN: "10"
   livenessProbe:
-    path: /health
+    path: /api/v1/health
     initialDelaySeconds: 15
     periodSeconds: 15
   readinessProbe:
-    path: /health/ready
+    path: /api/v1/health/ready
     initialDelaySeconds: 10
     periodSeconds: 10
   serviceAccount:

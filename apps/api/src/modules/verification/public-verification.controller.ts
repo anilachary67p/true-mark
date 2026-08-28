@@ -1,7 +1,7 @@
-import { Body, Controller, Headers, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { IsOptional, IsString, IsUrl, IsNumber, IsEnum, ValidateNested } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsEnum, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Request } from 'express';
 import { CoreVerificationService } from './core-verification.service';
@@ -19,7 +19,8 @@ class LocationDto {
 }
 
 class VerifyQrDto {
-  @IsUrl()
+  /** Full verification URL or raw QR payload (token encoded in the barcode). */
+  @IsString()
   url!: string;
 
   @IsOptional()
@@ -50,6 +51,13 @@ class VerifyCodeDto {
 @Controller({ path: 'public/verify', version: '1' })
 export class PublicVerificationController {
   constructor(private readonly verificationService: CoreVerificationService) {}
+
+  @Public()
+  @Get('branding')
+  getBranding(@Headers('host') host: string, @Query('hostname') hostname?: string) {
+    const resolved = (hostname ?? host)?.split(':')[0] ?? '';
+    return this.verificationService.getConsumerBranding(resolved);
+  }
 
   @Public()
   @Throttle({ verify: { limit: 60, ttl: 60000 } })

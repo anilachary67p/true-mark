@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { LifecycleStatus } from '@truemark/db';
 
-/** Allowed lifecycle transitions for catalog entities (product, variant, manufacturer, brand). */
+/** Allowed lifecycle transitions for catalog entities (category, product type, variant). */
 const CATALOG_TRANSITIONS: Partial<Record<LifecycleStatus, LifecycleStatus[]>> = {
   [LifecycleStatus.DRAFT]: [LifecycleStatus.ACTIVE, LifecycleStatus.RETIRED],
   [LifecycleStatus.ACTIVE]: [

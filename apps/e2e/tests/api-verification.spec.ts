@@ -43,6 +43,19 @@ test.describe('Public verification API', () => {
     expect(body.result).toBe('UNABLE_TO_VERIFY');
   });
 
+  test('raw numeric QR payload returns VERIFIED', async ({ request }) => {
+    const res = await request.post(`${API_URL}/api/v1/public/verify/qr`, {
+      data: {
+        url: E2E_FIXTURES.scanQrPayload,
+        hostname: E2E_FIXTURES.verifyHostname,
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(['VERIFIED', 'REVERIFIED']).toContain(body.result);
+    expect(body.product?.serial).toBe('SN-SCAN-12345');
+  });
+
   test('manual code verification works', async ({ request }) => {
     const res = await request.post(`${API_URL}/api/v1/public/verify/code`, {
       data: {

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { LifecycleStatus, UserRole } from '@truemark/db';
-import { IsString, IsOptional, IsInt, Min, Max, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsDateString, IsEnum, IsArray } from 'class-validator';
 import { ProductService } from './product.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, TenantId } from '../../common/decorators/current-user.decorator';
@@ -10,37 +10,30 @@ import { AuthUser } from '../auth/auth.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 
-class CreateManufacturerDto {
+class CreateCategoryDto {
   @IsString()
   name!: string;
 }
 
-class CreateBrandDto {
+class CreateProductTypeDto {
   @IsString()
-  manufacturerId!: string;
+  categoryId!: string;
 
   @IsString()
   name!: string;
 }
 
-class CreateProductDto {
+class CreateVariantDto {
   @IsString()
-  brandId!: string;
+  productTypeId!: string;
 
   @IsString()
   name!: string;
 
   @IsOptional()
-  @IsString()
-  sku?: string;
-}
-
-class CreateVariantDto {
-  @IsString()
-  productId!: string;
-
-  @IsString()
-  name!: string;
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 }
 
 class CreateBatchDto {
@@ -70,16 +63,6 @@ class BulkGenerateDto {
   serialPrefix?: string;
 }
 
-class UpdateProductDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  sku?: string | null;
-}
-
 class UpdateStatusDto {
   @IsEnum(LifecycleStatus)
   status!: LifecycleStatus;
@@ -96,6 +79,12 @@ const PRODUCT_ROLES = [
   UserRole.PRODUCT_MANAGER,
 ] as const;
 
+const READ_ROLES = [
+  ...PRODUCT_ROLES,
+  UserRole.ANALYST,
+  UserRole.READ_ONLY,
+] as const;
+
 @ApiTags('products')
 @ApiBearerAuth()
 @UseGuards(TenantGuard)
@@ -106,84 +95,106 @@ export class ProductController {
     @InjectQueue('bulk-generation') private readonly bulkQueue: Queue,
   ) {}
 
-  @Get('manufacturers')
-  @Roles(...PRODUCT_ROLES)
-  listManufacturers(@TenantId() tenantId: string) {
-    return this.productService.listManufacturers(tenantId);
+  @Get('categories')
+  @Roles(...READ_ROLES)
+  listCategories(@TenantId() tenantId: string) {
+    return this.productService.listCategories(tenantId);
   }
 
-  @Post('manufacturers')
+  @Post('categories')
   @Roles(...PRODUCT_ROLES)
-  createManufacturer(@TenantId() tenantId: string, @Body() dto: CreateManufacturerDto, @CurrentUser() user: AuthUser) {
-    return this.productService.createManufacturer(tenantId, dto.name, user.id);
+  createCategory(@TenantId() tenantId: string, @Body() dto: CreateCategoryDto, @CurrentUser() user: AuthUser) {
+    return this.productService.createCategory(tenantId, dto.name, user.id);
   }
 
-  @Get('brands')
-  @Roles(...PRODUCT_ROLES)
-  listBrands(@TenantId() tenantId: string, @Query('manufacturerId') manufacturerId?: string) {
-    return this.productService.listBrands(tenantId, manufacturerId);
+  @Get('product-types')
+  @Roles(...READ_ROLES)
+  listProductTypes(@TenantId() tenantId: string, @Query('categoryId') categoryId?: string) {
+    return this.productService.listProductTypes(tenantId, categoryId);
   }
 
-  @Post('brands')
-  @Roles(...PRODUCT_ROLES)
-  createBrand(@TenantId() tenantId: string, @Body() dto: CreateBrandDto, @CurrentUser() user: AuthUser) {
-    return this.productService.createBrand(tenantId, dto.manufacturerId, dto.name, user.id);
+  @Get('product-types/:productTypeId')
+  @Roles(...READ_ROLES)
+  getProductType(@TenantId() tenantId: string, @Param('productTypeId') productTypeId: string) {
+    return this.productService.getProductType(tenantId, productTypeId);
   }
 
-  @Get('products')
+  @Post('product-types')
   @Roles(...PRODUCT_ROLES)
-  listProducts(@TenantId() tenantId: string) {
-    return this.productService.listProducts(tenantId);
+  createProductType(@TenantId() tenantId: string, @Body() dto: CreateProductTypeDto, @CurrentUser() user: AuthUser) {
+    return this.productService.createProductType(tenantId, dto.categoryId, dto.name, user.id);
   }
 
-  @Get('products/:productId')
+  @Patch('product-types/:productTypeId/status')
   @Roles(...PRODUCT_ROLES)
-  getProduct(@TenantId() tenantId: string, @Param('productId') productId: string) {
-    return this.productService.getProduct(tenantId, productId);
-  }
-
-  @Post('products')
-  @Roles(...PRODUCT_ROLES)
-  createProduct(@TenantId() tenantId: string, @Body() dto: CreateProductDto, @CurrentUser() user: AuthUser) {
-    return this.productService.createProduct(tenantId, dto.brandId, dto.name, dto.sku, user.id);
-  }
-
-  @Patch('products/:productId')
-  @Roles(...PRODUCT_ROLES)
-  updateProduct(
+  updateProductTypeStatus(
     @TenantId() tenantId: string,
-    @Param('productId') productId: string,
-    @Body() dto: UpdateProductDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productService.updateProduct(tenantId, productId, dto, user.id);
-  }
-
-  @Patch('products/:productId/status')
-  @Roles(...PRODUCT_ROLES)
-  updateProductStatus(
-    @TenantId() tenantId: string,
-    @Param('productId') productId: string,
+    @Param('productTypeId') productTypeId: string,
     @Body() dto: UpdateStatusDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.productService.updateProductStatus(tenantId, productId, dto.status, user.id, dto.reason);
+    return this.productService.updateProductTypeStatus(
+      tenantId,
+      productTypeId,
+      dto.status,
+      user.id,
+      dto.reason,
+    );
+  }
+
+  @Get('variants')
+  @Roles(...READ_ROLES)
+  listVariants(
+    @TenantId() tenantId: string,
+    @Query('tag') tag?: string,
+    @Query('productTypeId') productTypeId?: string,
+  ) {
+    return this.productService.listVariants(tenantId, { tag, productTypeId });
+  }
+
+  @Get('variants/:variantId')
+  @Roles(...READ_ROLES)
+  getVariant(@TenantId() tenantId: string, @Param('variantId') variantId: string) {
+    return this.productService.getVariant(tenantId, variantId);
   }
 
   @Post('variants')
   @Roles(...PRODUCT_ROLES)
   createVariant(@TenantId() tenantId: string, @Body() dto: CreateVariantDto, @CurrentUser() user: AuthUser) {
-    return this.productService.createVariant(tenantId, dto.productId, dto.name, user.id);
+    return this.productService.createVariant(tenantId, dto.productTypeId, dto.name, user.id, dto.tags);
+  }
+
+  @Patch('variants/:variantId/status')
+  @Roles(...PRODUCT_ROLES)
+  updateVariantStatus(
+    @TenantId() tenantId: string,
+    @Param('variantId') variantId: string,
+    @Body() dto: UpdateStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productService.updateVariantStatus(tenantId, variantId, dto.status, user.id, dto.reason);
+  }
+
+  @Get('tags')
+  @Roles(...READ_ROLES)
+  listTags(@TenantId() tenantId: string) {
+    return this.productService.listTags(tenantId);
+  }
+
+  @Get('catalog-stats')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.TENANT_ADMIN, UserRole.ANALYST, UserRole.READ_ONLY)
+  getCatalogStats(@TenantId() tenantId: string) {
+    return this.productService.getCatalogStats(tenantId);
   }
 
   @Get('batches')
-  @Roles(...PRODUCT_ROLES)
+  @Roles(...READ_ROLES)
   listBatches(@TenantId() tenantId: string, @Query('variantId') variantId?: string) {
     return this.productService.listBatches(tenantId, variantId);
   }
 
   @Get('batches/:batchId')
-  @Roles(...PRODUCT_ROLES)
+  @Roles(...READ_ROLES)
   getBatch(@TenantId() tenantId: string, @Param('batchId') batchId: string) {
     return this.productService.getBatch(tenantId, batchId);
   }
@@ -235,7 +246,7 @@ export class ProductController {
   }
 
   @Get('batches/:batchId/units')
-  @Roles(...PRODUCT_ROLES)
+  @Roles(...READ_ROLES)
   listUnits(
     @TenantId() tenantId: string,
     @Param('batchId') batchId: string,
@@ -265,5 +276,18 @@ export class ProductController {
   @Roles(...PRODUCT_ROLES)
   getBulkJob(@TenantId() tenantId: string, @Param('jobId') jobId: string) {
     return this.productService.getBulkJob(tenantId, jobId);
+  }
+}
+
+@ApiTags('platform')
+@ApiBearerAuth()
+@Controller({ path: 'admin/platform', version: '1' })
+export class PlatformCatalogController {
+  constructor(private readonly productService: ProductService) {}
+
+  @Get('overview')
+  @Roles(UserRole.PLATFORM_ADMIN)
+  getOverview() {
+    return this.productService.getPlatformOverview();
   }
 }

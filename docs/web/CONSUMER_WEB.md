@@ -15,6 +15,14 @@
 
 ### QR scan
 
+**In-app camera scanner** on `/verify`:
+
+1. Tap **Scan QR Code** → camera opens (requires browser camera permission; HTTPS or localhost)
+2. Point at product QR → decoded URL is sent to `POST /api/v1/public/verify/qr`
+3. Result displayed: VERIFIED, REVERIFIED, UNKNOWN_QR, REVOKED, etc.
+
+**Deep link** (e.g. from phone camera app):
+
 1. Consumer scans QR → lands on `/verify?url=https://verify.example.com/v/<token>`
 2. App calls `POST /api/v1/public/verify/qr` with `url` and `hostname`
 3. Result displayed: VERIFIED, REVERIFIED, UNKNOWN_QR, REVOKED, etc.

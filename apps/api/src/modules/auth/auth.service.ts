@@ -54,6 +54,7 @@ export class AuthService {
       resourceType: 'user',
       resourceId: user.id,
       userId: user.id,
+      tenantId: authUser.tenantIds.length === 1 ? authUser.tenantIds[0] : undefined,
       ipAddress,
     });
 

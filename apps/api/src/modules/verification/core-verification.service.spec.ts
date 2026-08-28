@@ -12,12 +12,13 @@ const mockUnit = {
     expiryDate: new Date('2028-01-01'),
     status: LifecycleStatus.ACTIVE,
     productVariant: {
-      name: 'Standard',
-      product: {
-        name: 'ABC Shampoo',
-        sku: 'ABC-SHP-500',
-        brand: { name: 'ABC Pharma', manufacturer: { name: 'ABC Pharmaceuticals' } },
+      name: 'Shampoo A 500ml',
+      productCode: 'TM-SEED500ML',
+      productType: {
+        name: 'Shampoo A',
+        category: { name: 'Personal Care' },
       },
+      tags: [{ tag: { name: 'SH-A' } }, { tag: { name: 'SH-A-500' } }],
     },
   },
   serial: { serialNumber: 'SN-ABC-2026-000001' },
@@ -112,6 +113,32 @@ describe('CoreVerificationService', () => {
       expect(prisma.client.verificationEvent.create).toHaveBeenCalled();
     });
 
+    it('returns VERIFIED for raw QR payload (non-URL token)', async () => {
+      prisma.client.qrCode.findFirst.mockResolvedValue({
+        productUnit: {
+          ...mockUnit,
+          verificationCredential: {
+            status: LifecycleStatus.ACTIVE,
+            productUnitId: 'unit-1',
+          },
+        },
+      });
+
+      const result = await service.verifyByQr(
+        '1234512345123451234512345',
+        'verify.localhost',
+        undefined,
+        'corr-raw',
+      );
+
+      expect(result.result).toBe(VerificationResult.VERIFIED);
+      expect(prisma.client.qrCode.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tenantId, token: '1234512345123451234512345' },
+        }),
+      );
+    });
+
     it('returns VERIFIED for valid active credential', async () => {
       prisma.client.qrCode.findFirst.mockResolvedValue({
         productUnit: {
@@ -131,7 +158,7 @@ describe('CoreVerificationService', () => {
       );
 
       expect(result.result).toBe(VerificationResult.VERIFIED);
-      expect(result.product?.name).toBe('ABC Shampoo');
+      expect(result.product?.name).toBe('Shampoo A 500ml');
       expect(result.aiAvailable).toBe(true);
     });
 

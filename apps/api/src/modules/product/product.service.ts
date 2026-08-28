@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { assertLifecycleTransition } from './product-lifecycle.util';
 import { UnitGenerationService } from './unit-generation.service';
 import { QrService } from '../qr/qr.service';
+import { generateProductCode } from './product-code.util';
 
 @Injectable()
 export class ProductService {
@@ -21,124 +22,164 @@ export class ProductService {
     private readonly qrService: QrService,
   ) {}
 
-  // ─── Tenant-scoped lookups ─────────────────────────────────────────────────
-
-  private async requireManufacturer(tenantId: string, manufacturerId: string) {
-    const m = await this.prisma.client.manufacturer.findFirst({
-      where: { id: manufacturerId, tenantId },
+  private async requireCategory(tenantId: string, categoryId: string) {
+    const category = await this.prisma.client.category.findFirst({
+      where: { id: categoryId, tenantId },
     });
-    if (!m) throw new NotFoundException('Manufacturer not found');
-    return m;
+    if (!category) throw new NotFoundException('Category not found');
+    return category;
   }
 
-  private async requireBrand(tenantId: string, brandId: string) {
-    const b = await this.prisma.client.brand.findFirst({
-      where: { id: brandId, tenantId },
+  private async requireProductType(tenantId: string, productTypeId: string) {
+    const productType = await this.prisma.client.productType.findFirst({
+      where: { id: productTypeId, tenantId },
+      include: {
+        category: true,
+        variants: { include: { batches: true, tags: { include: { tag: true } } } },
+      },
     });
-    if (!b) throw new NotFoundException('Brand not found');
-    return b;
-  }
-
-  private async requireProduct(tenantId: string, productId: string) {
-    const p = await this.prisma.client.product.findFirst({
-      where: { id: productId, tenantId },
-      include: { brand: true, variants: { include: { batches: true } } },
-    });
-    if (!p) throw new NotFoundException('Product not found');
-    return p;
+    if (!productType) throw new NotFoundException('Product type not found');
+    return productType;
   }
 
   private async requireVariant(tenantId: string, variantId: string) {
-    const v = await this.prisma.client.productVariant.findFirst({
+    const variant = await this.prisma.client.productVariant.findFirst({
       where: { id: variantId, tenantId },
-      include: { product: true, batches: true },
+      include: {
+        productType: { include: { category: true } },
+        batches: true,
+        tags: { include: { tag: true } },
+      },
     });
-    if (!v) throw new NotFoundException('Variant not found');
-    return v;
+    if (!variant) throw new NotFoundException('Variant not found');
+    return variant;
   }
 
   private async requireBatch(tenantId: string, batchId: string) {
-    const b = await this.prisma.client.batch.findFirst({
+    const batch = await this.prisma.client.batch.findFirst({
       where: { id: batchId, tenantId },
       include: {
         productVariant: {
-          include: { product: { include: { brand: { include: { manufacturer: true } } } } },
+          include: {
+            productType: { include: { category: true } },
+            tags: { include: { tag: true } },
+          },
         },
       },
     });
-    if (!b) throw new NotFoundException('Batch not found');
-    return b;
+    if (!batch) throw new NotFoundException('Batch not found');
+    return batch;
   }
 
-  // ─── Create ────────────────────────────────────────────────────────────────
-
-  async createManufacturer(tenantId: string, name: string, userId: string) {
-    const m = await this.prisma.client.manufacturer.create({
-      data: { tenantId, name, status: LifecycleStatus.ACTIVE },
-    });
-    await this.audit.log({
-      action: 'MANUFACTURER_CREATED',
-      resourceType: 'manufacturer',
-      resourceId: m.id,
-      tenantId,
-      userId,
-      after: m,
-    });
-    return m;
+  private async attachTags(tenantId: string, variantId: string, tagNames: string[]) {
+    const normalized = [...new Set(tagNames.map((t) => t.trim()).filter(Boolean))];
+    for (const name of normalized) {
+      const tag = await this.prisma.client.tag.upsert({
+        where: { tenantId_name: { tenantId, name } },
+        create: { tenantId, name },
+        update: {},
+      });
+      await this.prisma.client.productVariantTag.upsert({
+        where: { productVariantId_tagId: { productVariantId: variantId, tagId: tag.id } },
+        create: { productVariantId: variantId, tagId: tag.id },
+        update: {},
+      });
+    }
   }
 
-  async createBrand(tenantId: string, manufacturerId: string, name: string, userId: string) {
-    await this.requireManufacturer(tenantId, manufacturerId);
-    const b = await this.prisma.client.brand.create({
-      data: { tenantId, manufacturerId, name, status: LifecycleStatus.ACTIVE },
-    });
-    await this.audit.log({
-      action: 'BRAND_CREATED',
-      resourceType: 'brand',
-      resourceId: b.id,
-      tenantId,
-      userId,
-      after: b,
-    });
-    return b;
-  }
-
-  async createProduct(
+  private async createVariantWithCode(
     tenantId: string,
-    brandId: string,
+    productTypeId: string,
     name: string,
-    sku: string | undefined,
+    tags: string[] | undefined,
     userId: string,
-  ) {
-    await this.requireBrand(tenantId, brandId);
-    const p = await this.prisma.client.product.create({
-      data: { tenantId, brandId, name, sku, status: LifecycleStatus.DRAFT },
-    });
-    await this.audit.log({
-      action: 'PRODUCT_CREATED',
-      resourceType: 'product',
-      resourceId: p.id,
-      tenantId,
-      userId,
-      after: p,
-    });
-    return p;
+    attempt = 0,
+  ): Promise<Awaited<ReturnType<ProductService['requireVariant']>>> {
+    const productCode = generateProductCode();
+    try {
+      const variant = await this.prisma.client.productVariant.create({
+        data: { tenantId, productTypeId, name, productCode, status: LifecycleStatus.DRAFT },
+      });
+      if (tags?.length) {
+        await this.attachTags(tenantId, variant.id, tags);
+      }
+      await this.audit.log({
+        action: 'VARIANT_CREATED',
+        resourceType: 'variant',
+        resourceId: variant.id,
+        tenantId,
+        userId,
+        after: variant,
+      });
+      return this.requireVariant(tenantId, variant.id);
+    } catch (err: unknown) {
+      if (
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        err.code === 'P2002' &&
+        attempt < 5
+      ) {
+        return this.createVariantWithCode(tenantId, productTypeId, name, tags, userId, attempt + 1);
+      }
+      throw err;
+    }
   }
 
-  async createVariant(tenantId: string, productId: string, name: string, userId: string) {
-    await this.requireProduct(tenantId, productId);
-    const v = await this.prisma.client.productVariant.create({
-      data: { tenantId, productId, name, status: LifecycleStatus.DRAFT },
-    });
-    await this.audit.log({
-      action: 'VARIANT_CREATED',
-      resourceType: 'variant',
-      resourceId: v.id,
-      tenantId,
-      userId,
-      after: v,
-    });
-    return v;
+  async createCategory(tenantId: string, name: string, userId: string) {
+    try {
+      const category = await this.prisma.client.category.create({
+        data: { tenantId, name, status: LifecycleStatus.ACTIVE },
+      });
+      await this.audit.log({
+        action: 'CATEGORY_CREATED',
+        resourceType: 'category',
+        resourceId: category.id,
+        tenantId,
+        userId,
+        after: category,
+      });
+      return category;
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002') {
+        throw new ConflictException('Category name already exists for this tenant');
+      }
+      throw err;
+    }
+  }
+
+  async createProductType(tenantId: string, categoryId: string, name: string, userId: string) {
+    await this.requireCategory(tenantId, categoryId);
+    try {
+      const productType = await this.prisma.client.productType.create({
+        data: { tenantId, categoryId, name, status: LifecycleStatus.ACTIVE },
+      });
+      await this.audit.log({
+        action: 'PRODUCT_TYPE_CREATED',
+        resourceType: 'product_type',
+        resourceId: productType.id,
+        tenantId,
+        userId,
+        after: productType,
+      });
+      return productType;
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002') {
+        throw new ConflictException('Product type name already exists in this category');
+      }
+      throw err;
+    }
+  }
+
+  async createVariant(
+    tenantId: string,
+    productTypeId: string,
+    name: string,
+    userId: string,
+    tags?: string[],
+  ) {
+    await this.requireProductType(tenantId, productTypeId);
+    return this.createVariantWithCode(tenantId, productTypeId, name, tags, userId);
   }
 
   async createBatch(
@@ -150,7 +191,7 @@ export class ProductService {
   ) {
     await this.requireVariant(tenantId, productVariantId);
     try {
-      const b = await this.prisma.client.batch.create({
+      const batch = await this.prisma.client.batch.create({
         data: {
           tenantId,
           productVariantId,
@@ -164,12 +205,12 @@ export class ProductService {
       await this.audit.log({
         action: 'BATCH_CREATED',
         resourceType: 'batch',
-        resourceId: b.id,
+        resourceId: batch.id,
         tenantId,
         userId,
-        after: b,
+        after: batch,
       });
-      return b;
+      return batch;
     } catch (err: unknown) {
       if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002') {
         throw new ConflictException('Batch code already exists for this tenant');
@@ -178,37 +219,64 @@ export class ProductService {
     }
   }
 
-  // ─── Read ──────────────────────────────────────────────────────────────────
-
-  async listManufacturers(tenantId: string) {
-    return this.prisma.client.manufacturer.findMany({
-      where: { tenantId },
-      include: { brands: { include: { products: true } } },
-      orderBy: { name: 'asc' },
-    });
-  }
-
-  async listBrands(tenantId: string, manufacturerId?: string) {
-    return this.prisma.client.brand.findMany({
-      where: { tenantId, ...(manufacturerId ? { manufacturerId } : {}) },
-      include: { manufacturer: true, products: true },
-      orderBy: { name: 'asc' },
-    });
-  }
-
-  async listProducts(tenantId: string) {
-    return this.prisma.client.product.findMany({
+  async listCategories(tenantId: string) {
+    return this.prisma.client.category.findMany({
       where: { tenantId },
       include: {
-        brand: { include: { manufacturer: true } },
-        variants: { include: { batches: true } },
+        productTypes: {
+          include: {
+            variants: { include: { tags: { include: { tag: true } }, batches: true } },
+          },
+        },
       },
       orderBy: { name: 'asc' },
     });
   }
 
-  async getProduct(tenantId: string, productId: string) {
-    return this.requireProduct(tenantId, productId);
+  async listProductTypes(tenantId: string, categoryId?: string) {
+    return this.prisma.client.productType.findMany({
+      where: { tenantId, ...(categoryId ? { categoryId } : {}) },
+      include: {
+        category: true,
+        variants: { include: { tags: { include: { tag: true } }, batches: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async listVariants(tenantId: string, filters?: { tag?: string; productTypeId?: string }) {
+    const tagFilter = filters?.tag?.trim();
+    return this.prisma.client.productVariant.findMany({
+      where: {
+        tenantId,
+        ...(filters?.productTypeId ? { productTypeId: filters.productTypeId } : {}),
+        ...(tagFilter
+          ? { tags: { some: { tag: { name: { equals: tagFilter, mode: 'insensitive' } } } } }
+          : {}),
+      },
+      include: {
+        productType: { include: { category: true } },
+        tags: { include: { tag: true } },
+        batches: true,
+      },
+      orderBy: [{ productType: { name: 'asc' } }, { name: 'asc' }],
+    });
+  }
+
+  async listTags(tenantId: string) {
+    return this.prisma.client.tag.findMany({
+      where: { tenantId },
+      include: { _count: { select: { variants: true } } },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getProductType(tenantId: string, productTypeId: string) {
+    return this.requireProductType(tenantId, productTypeId);
+  }
+
+  async getVariant(tenantId: string, variantId: string) {
+    return this.requireVariant(tenantId, variantId);
   }
 
   async getBatch(tenantId: string, batchId: string) {
@@ -218,7 +286,14 @@ export class ProductService {
   async listBatches(tenantId: string, variantId?: string) {
     return this.prisma.client.batch.findMany({
       where: { tenantId, ...(variantId ? { productVariantId: variantId } : {}) },
-      include: { productVariant: { include: { product: true } } },
+      include: {
+        productVariant: {
+          include: {
+            productType: { include: { category: true } },
+            tags: { include: { tag: true } },
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -228,7 +303,10 @@ export class ProductService {
     const [items, total] = await Promise.all([
       this.prisma.client.productUnit.findMany({
         where: { batchId, tenantId },
-        include: { serial: true, verificationCredential: { select: { tokenPrefix: true, status: true } } },
+        include: {
+          serial: true,
+          verificationCredential: { select: { tokenPrefix: true, status: true } },
+        },
         take: limit,
         skip: offset,
         orderBy: { createdAt: 'desc' },
@@ -246,45 +324,126 @@ export class ProductService {
     return job;
   }
 
-  // ─── Update ────────────────────────────────────────────────────────────────
+  async getCatalogStats(tenantId: string) {
+    const tenant = await this.prisma.client.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, name: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant not found');
 
-  async updateProduct(
-    tenantId: string,
-    productId: string,
-    data: { name?: string; sku?: string | null },
-    userId: string,
-  ) {
-    const before = await this.requireProduct(tenantId, productId);
-    const after = await this.prisma.client.product.update({
-      where: { id: productId },
-      data: {
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.sku !== undefined ? { sku: data.sku } : {}),
+    const categories = await this.prisma.client.category.findMany({
+      where: { tenantId },
+      include: {
+        productTypes: {
+          include: {
+            _count: { select: { variants: true } },
+            variants: { select: { id: true, name: true, productCode: true, status: true } },
+          },
+        },
+        _count: { select: { productTypes: true } },
       },
+      orderBy: { name: 'asc' },
     });
-    await this.audit.log({
-      action: 'PRODUCT_UPDATED',
-      resourceType: 'product',
-      resourceId: productId,
-      tenantId,
-      userId,
-      before,
-      after,
-    });
-    return after;
+
+    const [productTypeCount, variantCount, tagCount] = await Promise.all([
+      this.prisma.client.productType.count({ where: { tenantId } }),
+      this.prisma.client.productVariant.count({ where: { tenantId } }),
+      this.prisma.client.tag.count({ where: { tenantId } }),
+    ]);
+
+    return {
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      totals: {
+        categories: categories.length,
+        productTypes: productTypeCount,
+        variants: variantCount,
+        tags: tagCount,
+      },
+      categories: categories.map((category) => {
+        const variantCountForCategory = category.productTypes.reduce(
+          (sum, pt) => sum + pt._count.variants,
+          0,
+        );
+        return {
+          id: category.id,
+          name: category.name,
+          status: category.status,
+          productTypeCount: category._count.productTypes,
+          variantCount: variantCountForCategory,
+          productTypes: category.productTypes.map((pt) => ({
+            id: pt.id,
+            name: pt.name,
+            status: pt.status,
+            variantCount: pt._count.variants,
+            variants: pt.variants,
+          })),
+        };
+      }),
+    };
   }
 
-  async updateProductStatus(
+  async getPlatformOverview() {
+    const tenants = await this.prisma.client.tenant.findMany({
+      select: { id: true, name: true, status: true, deploymentType: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const [categoryCount, productTypeCount, variantCount, tagCount, licenseCount] =
+      await Promise.all([
+        this.prisma.client.category.count(),
+        this.prisma.client.productType.count(),
+        this.prisma.client.productVariant.count(),
+        this.prisma.client.tag.count(),
+        this.prisma.client.tenantLicense.count(),
+      ]);
+
+    const tenantSummaries = await Promise.all(
+      tenants.map(async (tenant) => {
+        const [categories, productTypes, variants, tags] = await Promise.all([
+          this.prisma.client.category.count({ where: { tenantId: tenant.id } }),
+          this.prisma.client.productType.count({ where: { tenantId: tenant.id } }),
+          this.prisma.client.productVariant.count({ where: { tenantId: tenant.id } }),
+          this.prisma.client.tag.count({ where: { tenantId: tenant.id } }),
+        ]);
+        const license = await this.prisma.client.tenantLicense.findUnique({
+          where: { tenantId: tenant.id },
+          select: { validUntil: true, commercialModel: true },
+        });
+        return {
+          ...tenant,
+          catalog: { categories, productTypes, variants, tags },
+          license: license
+            ? { validUntil: license.validUntil, commercialModel: license.commercialModel }
+            : null,
+        };
+      }),
+    );
+
+    return {
+      totals: {
+        tenants: tenants.length,
+        categories: categoryCount,
+        productTypes: productTypeCount,
+        variants: variantCount,
+        tags: tagCount,
+        licenses: licenseCount,
+      },
+      tenants: tenantSummaries,
+    };
+  }
+
+  async updateProductTypeStatus(
     tenantId: string,
-    productId: string,
+    productTypeId: string,
     status: LifecycleStatus,
     userId: string,
     reason?: string,
   ) {
-    const before = await this.requireProduct(tenantId, productId);
+    const before = await this.requireProductType(tenantId, productTypeId);
     assertLifecycleTransition('catalog', before.status, status);
-    const after = await this.prisma.client.product.update({
-      where: { id: productId },
+    const after = await this.prisma.client.productType.update({
+      where: { id: productTypeId },
       data: {
         status,
         ...(reason
@@ -300,9 +459,46 @@ export class ProductService {
       },
     });
     await this.audit.log({
-      action: 'PRODUCT_STATUS_CHANGED',
-      resourceType: 'product',
-      resourceId: productId,
+      action: 'PRODUCT_TYPE_STATUS_CHANGED',
+      resourceType: 'product_type',
+      resourceId: productTypeId,
+      tenantId,
+      userId,
+      before: { status: before.status },
+      after: { status: after.status, reason },
+    });
+    return after;
+  }
+
+  async updateVariantStatus(
+    tenantId: string,
+    variantId: string,
+    status: LifecycleStatus,
+    userId: string,
+    reason?: string,
+  ) {
+    const before = await this.requireVariant(tenantId, variantId);
+    assertLifecycleTransition('catalog', before.status, status);
+    const after = await this.prisma.client.productVariant.update({
+      where: { id: variantId },
+      data: {
+        status,
+        ...(reason
+          ? {
+              metadata: {
+                ...(typeof before.metadata === 'object' && before.metadata !== null
+                  ? (before.metadata as Record<string, unknown>)
+                  : {}),
+                lastStatusReason: reason,
+              },
+            }
+          : {}),
+      },
+    });
+    await this.audit.log({
+      action: 'VARIANT_STATUS_CHANGED',
+      resourceType: 'variant',
+      resourceId: variantId,
       tenantId,
       userId,
       before: { status: before.status },
@@ -375,8 +571,6 @@ export class ProductService {
     return after;
   }
 
-  // ─── Unit generation ───────────────────────────────────────────────────────
-
   async startUnitGeneration(
     tenantId: string,
     batchId: string,
@@ -440,7 +634,6 @@ export class ProductService {
     return { mode: 'async' as const, jobId: job.id, status: BulkJobStatus.PENDING };
   }
 
-  /** Used by bulk job processor — generates units starting after existing count. */
   async getBatchUnitCount(tenantId: string, batchId: string): Promise<number> {
     await this.requireBatch(tenantId, batchId);
     return this.prisma.client.productUnit.count({ where: { batchId, tenantId } });

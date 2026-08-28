@@ -1,30 +1,56 @@
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@import 'tailwindcss';
+
+@theme {
+  --color-hope-primary: #3a57e8;
+  --color-hope-primary-dark: #2e46c0;
+  --color-hope-primary-light: #e9edfb;
+  --color-hope-secondary: #8a92a6;
+  --color-hope-muted: #adb5bd;
+  --color-hope-dark: #232d42;
+  --color-hope-body: #f5f6fa;
+  --color-hope-success: #1aa053;
+  --color-hope-success-light: #d4edda;
+  --color-hope-warning: #f16a1b;
+  --color-hope-danger: #c03221;
+  --color-hope-info: #079aa2;
+  --color-hope-purple: #6f42c1;
+  --color-hope-teal: #20c997;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --shadow-hope-card: 0 4px 24px 0 rgba(34, 41, 47, 0.05);
+  --shadow-hope-sidebar: 0 0 20px 0 rgba(34, 41, 47, 0.04);
 }
 
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f5f7fa;
-  color: #1a1a2e;
-  line-height: 1.5;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-hope-body text-hope-dark antialiased;
+    font-family: var(--font-sans);
+  }
 }
 
-a {
-  color: #2563eb;
-  text-decoration: none;
-}
+@layer utilities {
+  .hope-card {
+    @apply rounded-2xl border border-slate-100 bg-white;
+    box-shadow: var(--shadow-hope-card);
+  }
 
-a:hover {
-  text-decoration: underline;
-}
+  .hope-sidebar-link {
+    @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-hope-dark transition-all duration-150;
+  }
 
-button {
-  cursor: pointer;
-  font: inherit;
-}
+  .hope-sidebar-link:hover {
+    @apply bg-hope-primary/8 text-hope-primary;
+  }
 
-input, select, textarea {
-  font: inherit;
+  .hope-sidebar-link-active {
+    @apply bg-hope-primary-light text-hope-primary;
+  }
+
+  .hope-sidebar-link-active::before {
+    content: '';
+    @apply absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-hope-primary;
+  }
 }

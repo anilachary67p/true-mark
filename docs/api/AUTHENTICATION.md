@@ -27,15 +27,17 @@
 
 ## Roles
 
-| Role | Scope |
-|------|-------|
-| `PLATFORM_ADMIN` | All tenants, create tenants |
-| `TENANT_ADMIN` | Single tenant configuration |
-| `MANUFACTURER_ADMIN` | Manufacturer scope |
+| Role | Scope | Also known as |
+|------|-------|---------------|
+| `PLATFORM_ADMIN` | All tenants, create tenants, licenses, platform overview | **Super Admin / Product Owner** |
+| `TENANT_ADMIN` | Single tenant configuration and catalog | **Tenant Admin / Organization** |
+| `MANUFACTURER_ADMIN` | Legacy manufacturer scope (catalog APIs) |
 | `PRODUCT_MANAGER` | Products, QR, batches |
 | `FRAUD_INVESTIGATOR` | Fraud, investigations |
 | `ANALYST` | Read analytics, verification history |
 | `READ_ONLY` | Read-only tenant access |
+
+See [Multi-Tenant Roles & Licensing](../architecture/MULTI_TENANT_ROLES_LICENSING.md) for the full role, deployment, and license model.
 
 ## Tenant isolation
 

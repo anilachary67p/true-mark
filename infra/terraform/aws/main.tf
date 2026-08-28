@@ -127,6 +127,18 @@ variable "eks_max_capacity" {
   default     = 6
 }
 
+variable "eks_cluster_endpoint_public_access" {
+  description = "Enable public Kubernetes API endpoint (disable in production; use private endpoint + VPN/bastion)"
+  type        = bool
+  default     = false
+}
+
+variable "eks_cluster_endpoint_public_access_cidrs" {
+  description = "CIDR blocks allowed to reach the public EKS API endpoint when enabled"
+  type        = list(string)
+  default     = []
+}
+
 # ─── Locals ──────────────────────────────────────────────────────────────────
 
 locals {
@@ -185,7 +197,7 @@ resource "aws_security_group" "rds" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   lifecycle {
@@ -210,7 +222,7 @@ resource "aws_security_group" "redis" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   lifecycle {
@@ -316,12 +328,25 @@ resource "aws_s3_bucket_versioning" "storage" {
   }
 }
 
+resource "aws_kms_key" "storage" {
+  description             = "TrueMark S3 object storage encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+}
+
+resource "aws_kms_alias" "storage" {
+  name          = "alias/${local.name_prefix}-storage"
+  target_key_id = aws_kms_key.storage.key_id
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "storage" {
   bucket = aws_s3_bucket.storage.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "aws:kms"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.storage.arn
     }
+    bucket_key_enabled = true
   }
 }
 
@@ -372,7 +397,36 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
-  cluster_endpoint_public_access = true
+  cluster_endpoint_public_access       = var.eks_cluster_endpoint_public_access
+  cluster_endpoint_public_access_cidrs = var.eks_cluster_endpoint_public_access_cidrs
+
+  node_security_group_enable_recommended_rules = false
+  node_security_group_additional_rules = {
+    ingress_self_all = {
+      description = "Node to node all ports/protocols"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "ingress"
+      self        = true
+    }
+    ingress_cluster_443 = {
+      description                   = "Cluster API to node groups"
+      protocol                      = "tcp"
+      from_port                     = 443
+      to_port                       = 443
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+    egress_vpc = {
+      description = "Node egress within VPC (NAT gateway for outbound)"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "egress"
+      cidr_blocks = [var.vpc_cidr]
+    }
+  }
 
   eks_managed_node_groups = {
     default = {

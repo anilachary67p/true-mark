@@ -1,4 +1,8 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { buildDateQuery, DateRangeValue } from './dateRange';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:3001';
+
+export type { DateRangeValue };
 
 let token: string | null = null;
 let refreshToken: string | null = null;
@@ -34,7 +38,11 @@ export function getToken(): string | null {
   return token;
 }
 
-async function request<T>(path: string, options: RequestInit = {}, allowRefresh = true): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  allowRefresh = true,
+): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -43,7 +51,12 @@ async function request<T>(path: string, options: RequestInit = {}, allowRefresh 
   if (t) headers.Authorization = `Bearer ${t}`;
 
   const res = await fetch(`${API_URL}/api/v1${path}`, { ...options, headers });
-  if (res.status === 401 && allowRefresh && path !== '/admin/auth/login' && path !== '/admin/auth/refresh') {
+  if (
+    res.status === 401 &&
+    allowRefresh &&
+    path !== '/admin/auth/login' &&
+    path !== '/admin/auth/refresh'
+  ) {
     const refreshed = await refreshAccessToken();
     if (refreshed) return request<T>(path, options, false);
     clearAuth();
@@ -54,7 +67,9 @@ async function request<T>(path: string, options: RequestInit = {}, allowRefresh 
       Array.isArray(err.message) ? err.message.join(', ') : (err.message ?? `HTTP ${res.status}`),
     );
   }
-  return res.json();
+  const text = await res.text();
+  if (!text) return null as T;
+  return JSON.parse(text) as T;
 }
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -91,7 +106,12 @@ export type Tenant = {
   status: string;
   deploymentType: string;
   configVersion: number;
-  profile?: { contactEmail?: string | null; country?: string | null };
+  profile?: {
+    companyDisplayName?: string | null;
+    contactEmail?: string | null;
+    country?: string | null;
+    address?: string | null;
+  };
   companyDomains?: CompanyDomain[];
   verificationDomains?: VerificationDomain[];
 };
@@ -146,8 +166,13 @@ export const api = {
 
   getTenant: (tenantId: string) => request<Tenant>(`/admin/tenants/${tenantId}`),
 
-  createTenant: (data: { name: string; legalName?: string; deploymentType?: string }) =>
-    request<Tenant>('/admin/tenants', { method: 'POST', body: JSON.stringify(data) }),
+  createTenant: (data: {
+    name: string;
+    legalName?: string;
+    deploymentType?: string;
+    commercialModel?: string;
+    licenseValidDays?: number;
+  }) => request<Tenant>('/admin/tenants', { method: 'POST', body: JSON.stringify(data) }),
 
   updateTenant: (
     tenantId: string,
@@ -157,7 +182,12 @@ export const api = {
 
   updateTenantProfile: (
     tenantId: string,
-    data: { address?: string; country?: string; contactEmail?: string },
+    data: {
+      companyDisplayName?: string;
+      address?: string;
+      country?: string;
+      contactEmail?: string;
+    },
   ) =>
     request(`/admin/tenants/${tenantId}/profile`, { method: 'PATCH', body: JSON.stringify(data) }),
 
@@ -213,48 +243,112 @@ export const api = {
       method: 'POST',
     }),
 
-  getDashboard: (tenantId: string) =>
-    request<Record<string, unknown>>(`/admin/tenants/${tenantId}/analytics/dashboard`),
+  getDashboard: (tenantId: string, range?: DateRangeValue) =>
+    request<Record<string, unknown>>(
+      `/admin/tenants/${tenantId}/analytics/dashboard${buildDateQuery(range)}`,
+    ),
 
-  getProducts: (tenantId: string) =>
+  getCategories: (tenantId: string) =>
     request<
       Array<{
         id: string;
         name: string;
-        sku?: string | null;
         status: string;
-        brand: { id: string; name: string; manufacturer: { id: string; name: string } };
-        variants: Array<{
+        productTypes: Array<{
           id: string;
           name: string;
           status: string;
-          batches: Array<{ id: string; batchCode: string; status: string }>;
+          variants: Array<{
+            id: string;
+            name: string;
+            productCode: string;
+            status: string;
+            tags: Array<{ tag: { name: string } }>;
+            batches: Array<{ id: string; batchCode: string; status: string }>;
+          }>;
         }>;
       }>
-    >(`/admin/tenants/${tenantId}/products`),
+    >(`/admin/tenants/${tenantId}/categories`),
 
-  getProduct: (tenantId: string, productId: string) =>
-    request(`/admin/tenants/${tenantId}/products/${productId}`),
-
-  createManufacturer: (tenantId: string, name: string) =>
-    request(`/admin/tenants/${tenantId}/manufacturers`, {
+  createCategory: (tenantId: string, name: string) =>
+    request(`/admin/tenants/${tenantId}/categories`, {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
 
-  createBrand: (tenantId: string, manufacturerId: string, name: string) =>
-    request(`/admin/tenants/${tenantId}/brands`, {
+  createProductType: (tenantId: string, categoryId: string, name: string) =>
+    request(`/admin/tenants/${tenantId}/product-types`, {
       method: 'POST',
-      body: JSON.stringify({ manufacturerId, name }),
+      body: JSON.stringify({ categoryId, name }),
     }),
 
-  createProduct: (tenantId: string, data: { brandId: string; name: string; sku?: string }) =>
-    request(`/admin/tenants/${tenantId}/products`, { method: 'POST', body: JSON.stringify(data) }),
-
-  createVariant: (tenantId: string, productId: string, name: string) =>
+  createVariant: (tenantId: string, productTypeId: string, name: string, tags?: string[]) =>
     request(`/admin/tenants/${tenantId}/variants`, {
       method: 'POST',
-      body: JSON.stringify({ productId, name }),
+      body: JSON.stringify({ productTypeId, name, tags }),
+    }),
+
+  listVariants: (tenantId: string, params?: { tag?: string; productTypeId?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.tag) q.set('tag', params.tag);
+    if (params?.productTypeId) q.set('productTypeId', params.productTypeId);
+    const qs = q.toString();
+    return request<
+      Array<{
+        id: string;
+        name: string;
+        productCode: string;
+        status: string;
+        productType: { id: string; name: string; category: { id: string; name: string } };
+        tags: Array<{ tag: { name: string } }>;
+        batches: Array<{ id: string; batchCode: string; status: string }>;
+      }>
+    >(`/admin/tenants/${tenantId}/variants${qs ? `?${qs}` : ''}`);
+  },
+
+  getCatalogStats: (tenantId: string) =>
+    request<{
+      tenantId: string;
+      tenantName: string;
+      totals: { categories: number; productTypes: number; variants: number; tags: number };
+      categories: Array<{
+        id: string;
+        name: string;
+        productTypeCount: number;
+        variantCount: number;
+        productTypes: Array<{
+          id: string;
+          name: string;
+          variantCount: number;
+          variants: Array<{ id: string; name: string; productCode: string; status: string }>;
+        }>;
+      }>;
+    }>(`/admin/tenants/${tenantId}/catalog-stats`),
+
+  getPlatformOverview: () =>
+    request<{
+      totals: {
+        tenants: number;
+        categories: number;
+        productTypes: number;
+        variants: number;
+        tags: number;
+        licenses: number;
+      };
+      tenants: Array<{
+        id: string;
+        name: string;
+        status: string;
+        deploymentType: string;
+        catalog: { categories: number; productTypes: number; variants: number; tags: number };
+        license: { validUntil: string; commercialModel: string } | null;
+      }>;
+    }>('/admin/platform/overview'),
+
+  updateVariantStatus: (tenantId: string, variantId: string, status: string) =>
+    request(`/admin/tenants/${tenantId}/variants/${variantId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
     }),
 
   createBatch: (
@@ -272,17 +366,6 @@ export const api = {
     request<{ mode: string; generated?: number; jobId?: string; status?: string }>(
       `/admin/tenants/${tenantId}/batches/${batchId}/generate-units`,
       { method: 'POST', body: JSON.stringify({ quantity, serialPrefix }) },
-    ),
-
-  updateProductStatus: (tenantId: string, productId: string, status: string) =>
-    request(`/admin/tenants/${tenantId}/products/${productId}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
-
-  listManufacturers: (tenantId: string) =>
-    request<Array<{ id: string; name: string; brands: Array<{ id: string; name: string }> }>>(
-      `/admin/tenants/${tenantId}/manufacturers`,
     ),
 
   listQrCodes: (tenantId: string, limit = 100, offset = 0) =>
@@ -354,8 +437,16 @@ export const api = {
       body: JSON.stringify({ status, reason }),
     }),
 
-  getVerificationHistory: (tenantId: string, limit = 50) =>
-    request<{
+  getVerificationHistory: (
+    tenantId: string,
+    options: { limit?: number; range?: DateRangeValue } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.range?.from) params.set('from', options.range.from);
+    if (options.range?.to) params.set('to', options.range.to);
+    const qs = params.toString();
+    return request<{
       items: Array<{
         publicId: string;
         result: string;
@@ -366,7 +457,8 @@ export const api = {
         productSnapshot?: Record<string, unknown>;
       }>;
       total: number;
-    }>(`/admin/tenants/${tenantId}/verification-history?limit=${limit}`),
+    }>(`/admin/tenants/${tenantId}/verification-history${qs ? `?${qs}` : ''}`);
+  },
 
   getAiConfig: (tenantId: string) =>
     request<{
@@ -412,6 +504,28 @@ export const api = {
 
   getFraudHotspots: (tenantId: string) => request(`/admin/tenants/${tenantId}/fraud/hotspots`),
 
+  getFraudConfig: (tenantId: string) =>
+    request<{
+      highScanCount: number;
+      highScanWindowMinutes: number;
+      maxTravelSpeedKmh: number;
+      impossibleTravelMinutes: number;
+    }>(`/admin/tenants/${tenantId}/fraud/config`),
+
+  updateFraudConfig: (
+    tenantId: string,
+    data: {
+      highScanCount?: number;
+      highScanWindowMinutes?: number;
+      maxTravelSpeedKmh?: number;
+      impossibleTravelMinutes?: number;
+    },
+  ) =>
+    request(`/admin/tenants/${tenantId}/fraud/config`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
   getFraudAlerts: (tenantId: string) =>
     request<
       Array<{
@@ -423,9 +537,9 @@ export const api = {
       }>
     >(`/admin/tenants/${tenantId}/fraud/alerts`),
 
-  getAnalyticsDaily: (tenantId: string, days = 30) =>
+  getAnalyticsDaily: (tenantId: string, range?: DateRangeValue) =>
     request<Array<{ date: string; metrics: Record<string, unknown> }>>(
-      `/admin/tenants/${tenantId}/analytics/daily?days=${days}`,
+      `/admin/tenants/${tenantId}/analytics/daily${buildDateQuery(range)}`,
     ),
 
   triggerAnalyticsRollup: (tenantId: string) =>
@@ -457,5 +571,47 @@ export const api = {
     request(`/admin/tenants/${tenantId}/qr-customization`, {
       method: 'POST',
       body: JSON.stringify({ config }),
+    }),
+
+  getLicenseStatus: (tenantId: string) =>
+    request<{
+      tenantId: string;
+      licenseId?: string;
+      organizationName?: string;
+      deploymentModel?: string;
+      commercialModel?: string;
+      status: string;
+      validFrom?: string;
+      validUntil?: string;
+      daysUntilExpiry?: number;
+      graceDaysRemaining?: number;
+      productOwnerEmail?: string;
+      productOwnerPhone?: string;
+      message?: string;
+    }>(`/admin/tenants/${tenantId}/license/status`),
+
+  listPlatformLicenses: () =>
+    request<
+      Array<{
+        tenantId: string;
+        licenseId: string;
+        organizationName: string;
+        deploymentModel: string;
+        commercialModel: string;
+        validUntil: string;
+        productOwnerEmail: string;
+      }>
+    >('/admin/platform/licenses'),
+
+  renewPlatformLicense: (tenantId: string, validUntil: string) =>
+    request(`/admin/platform/licenses/${tenantId}/renew`, {
+      method: 'POST',
+      body: JSON.stringify({ validUntil }),
+    }),
+
+  installPlatformLicense: (licenseFile: string) =>
+    request('/admin/platform/licenses/install', {
+      method: 'POST',
+      body: JSON.stringify({ licenseFile }),
     }),
 };

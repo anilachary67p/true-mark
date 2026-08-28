@@ -1,0 +1,4 @@
+# EKS managed node groups require outbound connectivity via NAT for image pulls.
+# Egress is restricted to VPC CIDR in infra/terraform/aws/main.tf; residual module
+# findings from terraform-aws-modules/eks default rules are suppressed after override.
+AVD-AWS-0104

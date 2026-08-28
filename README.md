@@ -75,17 +75,19 @@ docker compose -f infra/docker/docker-compose.yml up -d
 
 This starts Postgres (`truemark` / `truemark_dev`), Redis, and MinIO.
 
-**Option B — Manual containers:**
+**Option B — Manual containers** (if port 5432 is already in use, map Postgres to `5433`):
 
 ```bash
 docker run -d --name truemark-postgres \
   -e POSTGRES_USER=truemark \
   -e POSTGRES_PASSWORD=truemark_dev \
   -e POSTGRES_DB=truemark \
-  -p 5432:5432 postgres:16-alpine
+  -p 5433:5432 postgres:16-alpine
 
 docker run -d --name truemark-redis -p 6379:6379 redis:7-alpine
 ```
+
+> **Note:** `infra/docker/docker-compose.yml` maps Postgres to host port **5433** by default to avoid conflicts with a local PostgreSQL install.
 
 ### 3. Configure environment
 
@@ -96,7 +98,7 @@ cp .env.example .env
 Minimum required variables:
 
 ```bash
-DATABASE_URL=postgresql://truemark:truemark_dev@localhost:5432/truemark?schema=public
+DATABASE_URL=postgresql://truemark:truemark_dev@localhost:5433/truemark?schema=public
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=dev-jwt-secret-minimum-32-characters-long
 AUTH_MODE=dev
@@ -172,23 +174,52 @@ curl -X POST http://localhost:3001/api/v1/public/verify/qr \
 
 **Consumer UI:** Open http://localhost:3002/verify and enter manual code `TM-E2E0-FIXD-0001`.
 
+### 9. Run tests
+
+> **Tip:** Run each command on its own line. Do not paste inline comments after commands (e.g. `pnpm dev # comment`) — some terminals pass the comment text as extra arguments.
+
+**Full automated suite** (Docker, seed, unit + E2E):
+
+```bash
+pnpm test:all
+```
+
+**Unit tests only** (Jest, no servers required beyond DB for some suites):
+
+```bash
+pnpm test:unit
+```
+
+**E2E only** (start Docker + apps first, or use `pnpm test:all`):
+
+```bash
+pnpm docker:up
+export DATABASE_URL='postgresql://truemark:truemark_dev@localhost:5433/truemark?schema=public'
+pnpm db:push && pnpm db:seed
+# start API + admin-web + consumer-web in separate terminals (see step 5)
+pnpm test:e2e
+```
+
 ---
 
 ## Project scripts
 
-| Command            | Description                                                |
-| ------------------ | ---------------------------------------------------------- |
-| `pnpm dev`         | Start all apps in dev mode                                 |
-| `pnpm build`       | Build all packages and apps                                |
-| `pnpm test`        | Run API unit tests                                         |
-| `pnpm test:e2e`    | Playwright acceptance tests _(requires running API + web)_ |
-| `pnpm load-test`   | Core verification load test (p95 gate)                     |
-| `pnpm dr-drill`    | Backup → restore → integrity check                         |
-| `pnpm db:generate` | Generate Prisma client                                     |
-| `pnpm db:push`     | Push schema to database (dev)                              |
-| `pnpm db:migrate`  | Run migrations (production)                                |
-| `pnpm db:seed`     | Seed demo + E2E fixture data                               |
-| `pnpm format`      | Prettier format                                            |
+| Command            | Description                                              |
+| ------------------ | -------------------------------------------------------- |
+| `pnpm docker:up`   | Pull and start Postgres, Redis, MinIO via Docker Compose |
+| `pnpm dev`         | Start all apps in dev mode                               |
+| `pnpm build`       | Build all packages and apps                              |
+| `pnpm test`        | Run API unit tests (Jest)                                |
+| `pnpm test:unit`   | Same as `pnpm test` — API Jest suite only                |
+| `pnpm test:e2e`    | Playwright E2E tests _(requires running API + web)_      |
+| `pnpm test:all`    | Full pipeline: Docker → seed → build → Jest → Playwright |
+| `pnpm load-test`   | Core verification load test (p95 gate)                   |
+| `pnpm dr-drill`    | Backup → restore → integrity check                       |
+| `pnpm db:generate` | Generate Prisma client                                   |
+| `pnpm db:push`     | Push schema to database (dev)                            |
+| `pnpm db:migrate`  | Run migrations (production)                              |
+| `pnpm db:seed`     | Seed demo + E2E fixture data                             |
+| `pnpm format`      | Prettier format                                          |
 
 **Build frontends for production:**
 
@@ -206,36 +237,36 @@ NODE_ENV=production NEXT_PUBLIC_VERIFY_HOSTNAME=verify.localhost \
 
 ## Documentation
 
-| Category                 | Entry point                                                                      |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| **All docs**             | [docs/README.md](docs/README.md)                                                 |
-| **Admin Web**            | [docs/web/ADMIN_WEB.md](docs/web/ADMIN_WEB.md)                                   |
-| **Consumer Web**         | [docs/web/CONSUMER_WEB.md](docs/web/CONSUMER_WEB.md)                             |
-| **API**                  | [docs/api/API_REFERENCE.md](docs/api/API_REFERENCE.md)                           |
-| **Database**             | [docs/database/DATABASE.md](docs/database/DATABASE.md)                           |
-| **Production setup**     | [docs/deployment/PRODUCTION_SETUP_GUIDE.md](docs/deployment/PRODUCTION_SETUP_GUIDE.md) |
-| **Deployment**           | [docs/deployment/DEPLOYMENT_OVERVIEW.md](docs/deployment/DEPLOYMENT_OVERVIEW.md) |
-| **Docker**               | [docs/docker/DOCKER.md](docs/docker/DOCKER.md)                                   |
-| **Kubernetes / Helm**    | [docs/helm/KUBERNETES.md](docs/helm/KUBERNETES.md)                               |
-| **Terraform (AWS)**      | [docs/terraform/AWS.md](docs/terraform/AWS.md)                                   |
+| Category                 | Entry point                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **All docs**             | [docs/README.md](docs/README.md)                                                                                                                        |
+| **Admin Web**            | [docs/web/ADMIN_WEB.md](docs/web/ADMIN_WEB.md)                                                                                                          |
+| **Consumer Web**         | [docs/web/CONSUMER_WEB.md](docs/web/CONSUMER_WEB.md)                                                                                                    |
+| **API**                  | [docs/api/API_REFERENCE.md](docs/api/API_REFERENCE.md)                                                                                                  |
+| **Database**             | [docs/database/DATABASE.md](docs/database/DATABASE.md)                                                                                                  |
+| **Production setup**     | [docs/deployment/PRODUCTION_SETUP_GUIDE.md](docs/deployment/PRODUCTION_SETUP_GUIDE.md)                                                                  |
+| **Deployment**           | [docs/deployment/DEPLOYMENT_OVERVIEW.md](docs/deployment/DEPLOYMENT_OVERVIEW.md)                                                                        |
+| **Docker**               | [docs/docker/DOCKER.md](docs/docker/DOCKER.md)                                                                                                          |
+| **Kubernetes / Helm**    | [docs/helm/KUBERNETES.md](docs/helm/KUBERNETES.md)                                                                                                      |
+| **Terraform (AWS)**      | [docs/terraform/AWS.md](docs/terraform/AWS.md)                                                                                                          |
 | **Azure**                | [docs/deployment/PRODUCTION_SETUP_GUIDE.md](docs/deployment/PRODUCTION_SETUP_GUIDE.md) · [docs/runbooks/azure-deploy.md](docs/runbooks/azure-deploy.md) |
-| **On-premises**          | [docs/on-prem/INSTALL.md](docs/on-prem/INSTALL.md)                               |
-| **Architecture**         | [docs/architecture/SYSTEM.md](docs/architecture/SYSTEM.md)                       |
-| **Security**             | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)                                     |
-| **Production readiness** | [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)                     |
+| **On-premises**          | [docs/on-prem/INSTALL.md](docs/on-prem/INSTALL.md)                                                                                                      |
+| **Architecture**         | [docs/architecture/SYSTEM.md](docs/architecture/SYSTEM.md)                                                                                              |
+| **Security**             | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)                                                                                                            |
+| **Production readiness** | [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)                                                                                            |
 
 ---
 
 ## Deployment quick links
 
-| Target            | Guide                                                                                           |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| **On-prem / Azure** | [Production Setup Guide](docs/deployment/PRODUCTION_SETUP_GUIDE.md)                           |
-| AWS cloud         | [docs/terraform/AWS.md](docs/terraform/AWS.md) · [Cloud runbook](docs/runbooks/cloud-deploy.md) |
-| On-premises       | [docs/on-prem/INSTALL.md](docs/on-prem/INSTALL.md)                                              |
-| Kubernetes        | [docs/helm/KUBERNETES.md](docs/helm/KUBERNETES.md)                                              |
-| Hybrid            | [docs/architecture/HYBRID.md](docs/architecture/HYBRID.md)                                      |
-| Disaster recovery | [docs/runbooks/DR.md](docs/runbooks/DR.md)                                                      |
+| Target              | Guide                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| **On-prem / Azure** | [Production Setup Guide](docs/deployment/PRODUCTION_SETUP_GUIDE.md)                             |
+| AWS cloud           | [docs/terraform/AWS.md](docs/terraform/AWS.md) · [Cloud runbook](docs/runbooks/cloud-deploy.md) |
+| On-premises         | [docs/on-prem/INSTALL.md](docs/on-prem/INSTALL.md)                                              |
+| Kubernetes          | [docs/helm/KUBERNETES.md](docs/helm/KUBERNETES.md)                                              |
+| Hybrid              | [docs/architecture/HYBRID.md](docs/architecture/HYBRID.md)                                      |
+| Disaster recovery   | [docs/runbooks/DR.md](docs/runbooks/DR.md)                                                      |
 
 ---
 

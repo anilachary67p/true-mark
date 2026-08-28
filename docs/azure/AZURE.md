@@ -3,6 +3,26 @@
 > **Start here:** [Production Setup Guide](../deployment/PRODUCTION_SETUP_GUIDE.md) (§6 Azure)  
 > **Runbook:** [Azure Deploy Runbook](../runbooks/azure-deploy.md)
 
+## Recommended instance specifications
+
+### Azure VM path (same as on-prem, on Azure)
+
+| Tier | VM SKU | vCPU | RAM | Disk |
+|------|--------|------|-----|------|
+| Pilot | `Standard_D4s_v5` | 4 | 16 GB | 128 GB Premium SSD |
+| **Production** | `Standard_D8s_v5` | 8 | 32 GB | 256 GB Premium SSD |
+| Enterprise | `Standard_D16s_v5` | 16 | 64 GB | 512 GB Premium SSD |
+
+### AKS + managed services path
+
+| Tier | AKS nodes | PostgreSQL | Redis | Est. monthly |
+|------|-----------|------------|-------|--------------|
+| Pilot | 2× `Standard_D2s_v5` | Burstable B2s | Basic C1 | $400–600 |
+| **Production** | 3× `Standard_D4s_v5` | Standard_D4ds_v4 GP HA | Premium P1 | $1,000–1,500 |
+| Enterprise | 5× `Standard_D8s_v5` | Standard_D8ds_v4 GP HA | Premium P2 | $2,000–3,500 |
+
+Full sizing tables, per-component RAM, and scaling rules: [Production Setup Guide §6.2](../deployment/PRODUCTION_SETUP_GUIDE.md#62-azure-resources-required).
+
 ## Current state
 
 TrueMark today supports:

@@ -50,6 +50,8 @@ Thumbs.db
 *.tfstate.*
 
 # Binary / Generated
+license.truemark
+licenses/
 *.zip
 .storage/
 *.tar

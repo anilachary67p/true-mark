@@ -22,7 +22,7 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: getCorsOrigins(config),
+    origin: config.NODE_ENV === 'development' ? true : getCorsOrigins(config),
     credentials: true,
   });
 

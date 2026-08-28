@@ -1,6 +1,6 @@
 # TrueMark Code Review
 
-> Review date: August 2026  
+> Review date: August 2026 (updated — full codebase + docs pass)  
 > Scope: full monorepo (`apps/`, `packages/`, `infra/`, `docs/`)  
 > Focus: security, correctness, modularity, standards, documentation hygiene
 
@@ -10,14 +10,25 @@
 
 TrueMark is a well-structured modular monorepo (NestJS API, Next.js admin/consumer apps, Prisma DB, shared packages, Docker/Helm/Terraform). Core verification, tenant isolation, audit logging, and job processing follow sound patterns.
 
-This review identified **4 critical/high security issues** and **several functional gaps**. Critical items were **remediated in code** during this review; remaining items are documented as backlog.
+**Validation run (latest pass):**
 
-| Severity | Found | Fixed in review | Open |
-| -------- | ----- | --------------- | ---- |
-| Critical | 2     | 2               | 0    |
-| High     | 4     | 3               | 1    |
-| Medium   | 8     | 2               | 6    |
-| Low      | 6     | 1               | 5    |
+| Check | Result |
+|-------|--------|
+| API unit tests | ✅ 70/70 (15 suites) |
+| API build | ✅ Pass |
+| Admin web build | ✅ Pass (15 routes) |
+| Consumer web build | ✅ Pass |
+| Monorepo `pnpm lint` | ❌ Fails — web apps lack ESLint config |
+| E2E in CI | Configured (Playwright + load test + DR drill) |
+
+Earlier critical fixes (ThrottlerGuard, JWT secret, sync QR, token refresh) are in place. This pass found **new infra/doc drift** (health probe paths, OIDC defaults, rate-limit env vars) plus test and UI gaps.
+
+| Severity | Found (total) | Fixed earlier | Open |
+| -------- | ------------- | ------------- | ---- |
+| Critical | 3             | 2             | 1    |
+| High     | 8             | 3             | 5    |
+| Medium   | 14            | 2             | 12   |
+| Low      | 9             | 1             | 8    |
 
 ---
 
@@ -62,7 +73,11 @@ This review identified **4 critical/high security issues** and **several functio
 
 | ID     | Issue                                                         | Recommendation                                                                                            |
 | ------ | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| SEC-06 | `AUTH_MODE=oidc` documented/validated but **not implemented** | Implement OIDC strategy or restrict config enum to `dev` until ready; update `docs/api/AUTHENTICATION.md` |
+| SEC-06 | `AUTH_MODE=oidc` documented/validated but **not implemented** | Implement OIDC strategy or change Helm/runbook defaults to `AUTH_MODE=dev` until ready                    |
+| SEC-11 | **Health probe paths wrong in infra** — API serves `/api/v1/health` but Helm/compose/nginx use `/health` | Fix `infra/helm/truemark/values.yaml`, `docker-compose.onprem.yml`, `nginx/onprem.conf`, `prometheus.yml` |
+| SEC-12 | **`RATE_LIMIT_*` env vars never read** — limits hardcoded in `app.module.ts` | Wire config into `ThrottlerModule.forRoot()` or remove from env schema/docs                               |
+| SEC-13 | **CI lint gate fails** — admin/consumer web apps prompt for ESLint setup | Add `.eslintrc` to web apps so `.github/workflows/ci.yml` lint step passes                              |
+| SEC-14 | **Logout endpoint unthrottled** | Add `@Throttle` to `POST /admin/auth/logout`                                                            |
 
 ### Medium — security hygiene
 
@@ -95,8 +110,44 @@ See also [`THREAT_MODEL.md`](./THREAT_MODEL.md) for STRIDE analysis.
 | BUG-05 | `RolesGuard` returns `false` when user missing (403 vs 401)         | `roles.guard.ts`         | Throw `UnauthorizedException` when `!user`  |
 | BUG-06 | Consumer report UI not wired                                        | `consumer-web`           | Implement or mark stub in docs              |
 | BUG-07 | Admin settings page is placeholder                                  | `admin-web/.../settings` | Implement tenant config UI or hide nav item |
+| BUG-08 | Fraud hotspots API unused in admin UI                               | `fraud-intelligence/page.tsx` | Wire `api.getFraudHotspots()` or remove API |
+| BUG-09 | Readiness check omits Redis despite docs claiming DB+Redis          | `health.controller.ts`     | Add Redis ping to `/health/ready` or fix docs |
+| BUG-10 | `TenantId` decorator falls back to first JWT tenant if unset        | `current-user.decorator.ts` | Require explicit tenant or throw |
 
 ---
+
+## Feature completeness
+
+### Admin pages (15 routes)
+
+| Route | Status | Notes |
+|-------|--------|-------|
+| `/login`, `/dashboard`, `/organizations`, `/domains` | ✅ Complete | |
+| `/products`, `/qr-codes`, `/qr-customization` | ✅ Complete | Full product hierarchy + QR export |
+| `/verification-history`, `/audit-log`, `/analytics` | ✅ Complete | |
+| `/ai-detection` | ✅ Complete | AI mode, quota, reference images |
+| `/fraud-intelligence` | ⚠️ Partial | Summary/signals/alerts — no hotspots UI |
+| `/investigations` | ⚠️ Partial | Create/list/status only |
+| `/settings` | ❌ Stub | Placeholder text only |
+
+**Admin gaps:** No tenant switcher (except `?tenantId=` on domains); no role-based nav hiding.
+
+### Consumer web (2 routes)
+
+| Route | Status | Notes |
+|-------|--------|-------|
+| `/`, `/verify` | ✅ Complete | QR + manual code + AI capture panel |
+| Consumer report | ❌ Missing | `POST /public/reports` API exists; no UI |
+
+### API module test coverage
+
+| Module | Has `.spec.ts`? |
+|--------|-----------------|
+| auth, domain, audit, product, credential, qr, verification, fraud (evaluator), ai-config, ai-orchestration (visual-ai), hybrid, tenant guard | ✅ Partial or full |
+| tenant, qr-customization, investigation, consumer-report, analytics, health, jobs (bulk processor, scheduler) | ❌ No tests |
+| All controllers | ❌ No integration tests |
+
+**Total:** 15 suites, 70 tests — all passing. No controller-level or E2E API integration tests beyond Playwright smoke.
 
 ## Modularity & standards
 
@@ -179,20 +230,31 @@ See also [`THREAT_MODEL.md`](./THREAT_MODEL.md) for STRIDE analysis.
 | `docs/IMPLEMENTATION_PLAN.md`         | Historical build plan; superseded by architecture docs |
 | `docs/IMPLEMENTATION_STATUS.md`       | Phase tracker; platform complete (phases 0–15)         |
 
----
+### Doc vs code mismatches (open)
+
+| Topic | Docs say | Code does | Affected files |
+|-------|----------|-----------|----------------|
+| Health paths | `/health`, `/health/ready` | `/api/v1/health`, `/api/v1/health/ready` | `helm/values.yaml`, `docker-compose.onprem.yml`, `nginx/onprem.conf`, `DR.md`, `onprem-install.md`, `API_REFERENCE.md` |
+| AUTH_MODE | `oidc` for production | Only `dev` JWT/password works | `helm/values.yaml`, `onprem-install.md`, `AUTHENTICATION.md` |
+| Rate limits | `RATE_LIMIT_*` env configurable | Hardcoded in `app.module.ts` | `packages/config`, compose, Helm |
+| Readiness | DB + Redis | DB + hybrid gateway only | `SYSTEM.md`, `health.controller.ts` |
+| Azure Terraform | Referenced in guides | Not in repo — manual Azure only | `docs/azure/AZURE.md` (correctly marked planned) |
+
+**Correct references:** `README.md`, `PRODUCTION_SETUP_GUIDE.md` (partial), `Dockerfile.api`, E2E tests use `/api/v1/health/ready`.
+
+### Documentation inventory (26 files)
+
+All hub links in `docs/README.md` resolve. Canonical docs are well-organized by category (web, API, deployment, architecture, runbooks). `project.md` remains the product spec source of truth (4,700+ lines).
 
 ## Remediation checklist (production)
 
 Before production deploy, complete:
 
 - [ ] Set strong `JWT_SECRET` (≥32 chars) and rotate policy
-- [ ] Confirm `ThrottlerGuard` limits match expected traffic (`verify`, `ai`, `default` buckets)
-- [ ] Remove or implement `AUTH_MODE=oidc`
-- [ ] Move admin tokens to `httpOnly` cookies (or accept XSS risk with CSP hardening)
-- [ ] Run `pnpm --filter @truemark/api test` and E2E suite green in CI
-- [ ] Penetration test public verify + auth endpoints
-- [ ] Enable DB backups and test DR runbook (`docs/runbooks/DR.md`)
+- [ ] Fix health probe paths in Helm, Docker Compose, nginx, Prometheus → `/api/v1/health`
+- [ ] Wire `RATE_LIMIT_*` env vars or remove from config/docs
 - [ ] Add ESLint config to web apps for CI lint gate
+- [ ] Remove or implement `AUTH_MODE=oidc`
 
 ---
 
@@ -201,8 +263,10 @@ Before production deploy, complete:
 After remediations, run:
 
 ```bash
-pnpm --filter @truemark/api test
+pnpm --filter @truemark/api test          # 70/70
 NODE_ENV=production pnpm --filter @truemark/admin-web build
+NODE_ENV=production pnpm --filter @truemark/consumer-web build
+# pnpm lint  # fails on web apps until ESLint configured
 ```
 
 ---
@@ -211,4 +275,5 @@ NODE_ENV=production pnpm --filter @truemark/admin-web build
 
 - [Threat Model](./THREAT_MODEL.md)
 - [Production Readiness](./PRODUCTION_READINESS.md)
+- [Production Setup Guide](./deployment/PRODUCTION_SETUP_GUIDE.md)
 - [System Architecture](./architecture/SYSTEM.md)

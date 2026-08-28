@@ -1,10 +1,29 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@truemark/db';
+import { IsInt, IsNumber, IsOptional } from 'class-validator';
 import { FraudService } from './fraud.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { TenantId } from '../../common/decorators/current-user.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
+
+class UpdateFraudConfigDto {
+  @IsOptional()
+  @IsInt()
+  highScanCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  highScanWindowMinutes?: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxTravelSpeedKmh?: number;
+
+  @IsOptional()
+  @IsInt()
+  impossibleTravelMinutes?: number;
+}
 
 @ApiTags('fraud')
 @ApiBearerAuth()
@@ -12,6 +31,18 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 @Controller({ path: 'admin/tenants/:tenantId/fraud', version: '1' })
 export class FraudController {
   constructor(private readonly fraudService: FraudService) {}
+
+  @Get('config')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.TENANT_ADMIN, UserRole.FRAUD_INVESTIGATOR)
+  config(@TenantId() tenantId: string) {
+    return this.fraudService.getConfig(tenantId);
+  }
+
+  @Patch('config')
+  @Roles(UserRole.PLATFORM_ADMIN, UserRole.TENANT_ADMIN)
+  updateConfig(@TenantId() tenantId: string, @Body() dto: UpdateFraudConfigDto) {
+    return this.fraudService.updateConfig(tenantId, dto);
+  }
 
   @Get('signals')
   @Roles(UserRole.PLATFORM_ADMIN, UserRole.TENANT_ADMIN, UserRole.FRAUD_INVESTIGATOR)

@@ -23,7 +23,6 @@ model Tenant {
   companyDomains       CompanyDomain[]
   verificationDomains  VerificationDomain[]
   users                UserTenantRole[]
-  manufacturers        Manufacturer[]
   fraudConfig          FraudConfig?
   aiConfig             AiConfig?
   qrCustomizationConfigs QrCustomizationConfig[]
@@ -33,19 +32,23 @@ model Tenant {
   auditLogs            AuditLog[]
   analyticsDaily       AnalyticsDaily[]
   bulkJobs             BulkJob[]
+  license              TenantLicense?
+  categories           Category[]
+  tags                 Tag[]
 
   @@map("tenants")
 }
 
 model TenantProfile {
-  id        String   @id @default(uuid())
-  tenantId  String   @unique @map("tenant_id")
-  address   String?
-  country   String?
-  contactEmail String? @map("contact_email")
-  metadata  Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  tenantId           String   @unique @map("tenant_id")
+  companyDisplayName String?  @map("company_display_name")
+  address            String?
+  country            String?
+  contactEmail       String?  @map("contact_email")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -65,6 +68,30 @@ enum DeploymentType {
   CUSTOMER_CLOUD
   ON_PREM
   HYBRID
+}
+
+model TenantLicense {
+  id                String   @id @default(uuid())
+  tenantId          String   @unique @map("tenant_id")
+  licenseId         String   @unique @map("license_id")
+  organizationName  String   @map("organization_name")
+  deploymentModel   String   @map("deployment_model")
+  commercialModel   String   @map("commercial_model")
+  instanceId        String   @map("instance_id")
+  validFrom         DateTime @map("valid_from")
+  validUntil        DateTime @map("valid_until")
+  issuedAt          DateTime @map("issued_at")
+  productOwnerEmail String   @map("product_owner_email")
+  productOwnerPhone String?  @map("product_owner_phone")
+  licenseFile       String   @map("license_file") @db.Text
+  encryptedBackup   String   @map("encrypted_backup") @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([validUntil])
+  @@map("tenant_licenses")
 }
 
 // ─── Domains ─────────────────────────────────────────────────────────────────
@@ -187,9 +214,9 @@ enum UserRole {
   READ_ONLY
 }
 
-// ─── Product Hierarchy ─────────────────────────────────────────────────────────
+// ─── Product Hierarchy (Category → Product Type → Variant) ───────────────────
 
-model Manufacturer {
+model Category {
   id        String          @id @default(uuid())
   tenantId  String          @map("tenant_id")
   name      String
@@ -198,66 +225,78 @@ model Manufacturer {
   createdAt DateTime        @default(now()) @map("created_at")
   updatedAt DateTime        @updatedAt @map("updated_at")
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  brands Brand[]
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productTypes ProductType[]
 
+  @@unique([tenantId, name])
   @@index([tenantId])
-  @@map("manufacturers")
+  @@map("categories")
 }
 
-model Brand {
-  id             String          @id @default(uuid())
-  tenantId       String          @map("tenant_id")
-  manufacturerId String          @map("manufacturer_id")
-  name           String
-  status         LifecycleStatus @default(ACTIVE)
-  metadata       Json            @default("{}")
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
+model ProductType {
+  id         String          @id @default(uuid())
+  tenantId   String          @map("tenant_id")
+  categoryId String          @map("category_id")
+  name       String
+  status     LifecycleStatus @default(ACTIVE)
+  metadata   Json            @default("{}")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
 
-  manufacturer Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
-  products     Product[]
-
-  @@index([tenantId])
-  @@index([manufacturerId])
-  @@map("brands")
-}
-
-model Product {
-  id        String          @id @default(uuid())
-  tenantId  String          @map("tenant_id")
-  brandId   String          @map("brand_id")
-  name      String
-  sku       String?
-  status    LifecycleStatus @default(DRAFT)
-  metadata  Json            @default("{}")
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
-
-  brand    Brand           @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  category Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   variants ProductVariant[]
 
+  @@unique([tenantId, categoryId, name])
   @@index([tenantId])
-  @@index([brandId])
-  @@map("products")
+  @@index([categoryId])
+  @@map("product_types")
 }
 
 model ProductVariant {
-  id        String          @id @default(uuid())
-  tenantId  String          @map("tenant_id")
-  productId String          @map("product_id")
-  name      String
-  status    LifecycleStatus @default(DRAFT)
-  metadata  Json            @default("{}")
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  id            String          @id @default(uuid())
+  tenantId      String          @map("tenant_id")
+  productTypeId String          @map("product_type_id")
+  name          String
+  productCode   String          @map("product_code")
+  status        LifecycleStatus @default(DRAFT)
+  metadata      Json            @default("{}")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  batches Batch[]
+  productType ProductType         @relation(fields: [productTypeId], references: [id], onDelete: Cascade)
+  tags        ProductVariantTag[]
+  batches     Batch[]
 
+  @@unique([tenantId, productCode])
   @@index([tenantId])
-  @@index([productId])
+  @@index([productTypeId])
   @@map("product_variants")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variants ProductVariantTag[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tags")
+}
+
+model ProductVariantTag {
+  productVariantId String @map("product_variant_id")
+  tagId            String @map("tag_id")
+
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  tag            Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productVariantId, tagId])
+  @@index([tagId])
+  @@map("product_variant_tags")
 }
 
 model Batch {

@@ -12,6 +12,17 @@
 | On-premises       | `ON_PREM`         | Full stack in customer datacenter     |
 | Hybrid            | `HYBRID`          | Core on-prem + cloud AI (Pattern A)   |
 
+## Licensing
+
+TrueMark uses signed, tamper-resistant licenses tied to tenant and deployment instance. See [Multi-Tenant Roles & Licensing](../architecture/MULTI_TENANT_ROLES_LICENSING.md).
+
+| Deployment | License file location |
+|------------|----------------------|
+| SaaS (`SAAS`) | `{LICENSE_DIR}/licenses/{tenantId}.truemark` |
+| Dedicated (`ON_PREM`, `CUSTOMER_CLOUD`, etc.) | `{LICENSE_DIR}/license.truemark` |
+
+Product owner retains `LICENSE_SIGNING_PRIVATE_KEY`; customer deployments receive only the public key and backup decryption key.
+
 ## Component matrix
 
 | Component      | SaaS (AWS)       | On-prem            | Hybrid                               |

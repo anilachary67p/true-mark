@@ -6,8 +6,9 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, CorrelationId } from '../../common/decorators/current-user.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthUser } from '../auth/auth.service';
-import { IsEmail, IsEnum, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsInt, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { DeploymentType, TenantStatus } from '@truemark/db';
+import { LicenseCommercialModel } from '@truemark/shared';
 import { Request } from 'express';
 
 class CreateTenantDto {
@@ -21,6 +22,15 @@ class CreateTenantDto {
   @IsOptional()
   @IsEnum(DeploymentType)
   deploymentType?: DeploymentType;
+
+  @IsOptional()
+  @IsEnum(LicenseCommercialModel)
+  commercialModel?: LicenseCommercialModel;
+
+  @IsOptional()
+  @IsInt()
+  @Min(30)
+  licenseValidDays?: number;
 }
 
 class UpdateTenantDto {
@@ -42,6 +52,10 @@ class UpdateTenantDto {
 }
 
 class UpdateTenantProfileDto {
+  @IsOptional()
+  @IsString()
+  companyDisplayName?: string;
+
   @IsOptional()
   @IsString()
   address?: string;

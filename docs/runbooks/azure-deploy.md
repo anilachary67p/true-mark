@@ -19,6 +19,63 @@
 | **A — VM + Docker Compose** | Pilot, single tenant, fastest | [§6.3](../deployment/PRODUCTION_SETUP_GUIDE.md#63-option-a--deploy-on-azure-vm-step-by-step) |
 | **B — AKS + managed services** | Production HA, multi-tenant SaaS | [§6.4](../deployment/PRODUCTION_SETUP_GUIDE.md#64-option-b--deploy-on-aks-step-by-step) |
 
+## Recommended instance specifications
+
+### Path A — VM + Docker Compose
+
+Same workload as on-prem. Use these Azure VM SKUs:
+
+| Tier | SKU | vCPU | RAM | Disks | Monthly est. |
+|------|-----|------|-----|-------|--------------|
+| Pilot | `Standard_D4s_v5` | 4 | 16 GB | 128 GB Premium SSD | ~$140–180 |
+| **Production** | `Standard_D8s_v5` | 8 | 32 GB | 128 GB OS + 256 GB data (Premium SSD) | ~$280–350 |
+| Enterprise | `Standard_D16s_v5` | 16 | 64 GB | 128 GB OS + 512 GB data (Premium SSD) | ~$560–700 |
+
+```bash
+# Production tier example
+az vm create \
+  --resource-group rg-truemark-prod \
+  --name vm-truemark \
+  --image Ubuntu2204 \
+  --size Standard_D8s_v5 \
+  --os-disk-size-gb 128 \
+  --data-disk-sizes-gb 256 \
+  --storage-sku Premium_LRS \
+  --admin-username azureuser \
+  --generate-ssh-keys
+```
+
+### Path B — AKS + managed services
+
+| Tier | AKS worker nodes | PostgreSQL Flexible | Redis | Notes |
+|------|------------------|---------------------|-------|-------|
+| Pilot | 2× `Standard_D2s_v5` | `Burstable_B2s`, 64 GB | Basic C1 | Non-HA; dev/UAT only |
+| **Production** | 3× `Standard_D4s_v5` | `Standard_D4ds_v4` GP, 128 GB, **Zone redundant HA** | Premium P1 | **Default recommendation** |
+| Enterprise | 3–5× `Standard_D8s_v5` | `Standard_D8ds_v4` GP, 256 GB, Zone redundant HA | Premium P2 | + Front Door, autoscale |
+
+**AKS cluster sizing (Production):**
+
+```bash
+az aks create \
+  --resource-group rg-truemark-prod \
+  --name aks-truemark \
+  --node-count 3 \
+  --node-vm-size Standard_D4s_v5 \
+  --node-osdisk-size 128 \
+  --enable-cluster-autoscaler \
+  --min-count 3 \
+  --max-count 8
+```
+
+| Component | Production SKU | vCPU | RAM | Storage |
+|-----------|----------------|------|-----|---------|
+| PostgreSQL Flexible Server | `Standard_D4ds_v4` (GP, HA) | 4 | 16 GB | 128 GB (grow to 512 GB) |
+| Azure Cache for Redis | Premium P1 | — | 6 GB | Persistence enabled |
+| Blob Storage | Standard GRS | — | — | 500 GB initial |
+| Application Gateway | WAF_v2 | — | — | 1–2 instances |
+
+**Estimated monthly cost:** Pilot $400–600 · Production $1,000–1,500 · Enterprise $2,000–3,500 (East US).
+
 ## Prerequisites
 
 1. Azure subscription with **Contributor** access

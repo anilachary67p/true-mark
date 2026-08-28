@@ -1,5 +1,19 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET",
+    "AUTH_MODE",
+    "STORAGE_PROVIDER",
+    "AI_PROVIDER",
+    "CORS_ORIGINS",
+    "API_PORT",
+    "API_HOST",
+    "NEXT_PUBLIC_API_URL",
+    "NEXT_PUBLIC_VERIFY_HOSTNAME",
+    "NODE_ENV"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

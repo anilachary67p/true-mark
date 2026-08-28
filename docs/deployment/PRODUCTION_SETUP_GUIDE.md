@@ -303,11 +303,48 @@ Use **Entra ID B2C** only if external partners need admin access without corpora
 
 ### 5.1 Hardware & network
 
+#### Recommended instance specifications
+
+| Tier | Use case | vCPU | RAM | Disk (SSD) | Network |
+|------|----------|------|-----|------------|---------|
+| **Pilot** | UAT, single tenant, &lt;100k units | 4 | 16 GB | 100 GB | 1 Gbps |
+| **Production** | 1–5 tenants, &lt;5M units, daily backups | 8 | 32 GB | 256 GB | 1 Gbps |
+| **Enterprise** | High verify volume, AI, HA | 16 | 64 GB | 512 GB–1 TB | 10 Gbps or bonded 1 Gbps |
+
+**Production tier is the default recommendation** for any customer-facing deployment.
+
+Per-service allocation on a single host (Production tier):
+
+| Service | CPU | RAM | Storage growth |
+|---------|-----|-----|----------------|
+| API + BullMQ | 1–2 cores | 512 MB–1 GB | Minimal |
+| Admin + Consumer web | 0.5 core | 512 MB | Minimal |
+| PostgreSQL 16 | 1–2 cores | 2–4 GB | ~1–5 GB/month per 1M verifications (estimate) |
+| Redis 7 | 0.25 core | 256–512 MB | Ephemeral |
+| MinIO | 0.5 core | 512 MB–1 GB | QR exports + AI images |
+| nginx + OS headroom | 2+ cores | 8+ GB | Logs, backups |
+
+#### Scaling triggers
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| CPU sustained &gt; 70% | 15 min | Upgrade to next tier or split DB to second host |
+| Disk &gt; 70% | — | Expand volume; archive old QR exports |
+| Verify p95 &gt; 500 ms | — | Add CPU; index tuning; dedicated Postgres |
+| Bulk job backlog | &gt; 1 h | Increase Redis memory; add worker capacity |
+
+#### HA on-prem (optional)
+
+| Layout | Each node |
+|--------|-----------|
+| Active / passive pair | 8 vCPU, 32 GB RAM, 256 GB SSD |
+| App + DB split | App: 8 vCPU / 32 GB — DB: 4 vCPU / 16 GB / 500 GB SSD |
+
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
 | CPU | 4 cores | 8+ cores |
 | RAM | 16 GB | 32 GB |
-| Disk | 100 GB SSD | 500 GB SSD |
+| Disk | 100 GB SSD | 256–500 GB SSD |
 | Network | 1 Gbps LAN | Redundant NICs |
 
 Firewall rules:
@@ -442,25 +479,69 @@ docker compose -f infra/docker/docker-compose.onprem.yml --profile monitoring up
 
 ### 6.2 Azure resources required
 
+#### Recommended instance specifications (summary)
+
+| Path | Tier | Azure VM / SKU | vCPU | RAM | Disk | Est. monthly cost (USD) |
+|------|------|----------------|------|-----|------|-------------------------|
+| **A — VM + Compose** | Pilot | `Standard_D4s_v5` | 4 | 16 GB | 128 GB Premium SSD | ~$140–180 |
+| **A — VM + Compose** | Production | `Standard_D8s_v5` | 8 | 32 GB | 256 GB Premium SSD | ~$280–350 |
+| **A — VM + Compose** | Enterprise | `Standard_D16s_v5` | 16 | 64 GB | 512 GB Premium SSD | ~$560–700 |
+| **B — AKS + managed** | Pilot | 2× `Standard_D2s_v5` nodes + Burstable Postgres | — | — | — | ~$400–600 |
+| **B — AKS + managed** | Production | 3× `Standard_D4s_v5` + GP Postgres HA + Redis P1 | — | — | — | ~$1,000–1,500 |
+| **B — AKS + managed** | Enterprise | 3× `Standard_D8s_v5` + GP Postgres HA + Redis P2 + Front Door | — | — | — | ~$2,000–3,500 |
+
+*Costs are approximate for **East US**; use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/).*
+
 #### Option A — Simple (VM + Docker Compose)
 
-Best for pilots and single-tenant dedicated deployments.
+Best for pilots and single-tenant dedicated deployments. Same sizing as [on-prem](../on-prem/INSTALL.md#recommended-instance-specifications).
 
-| Resource | Azure service | SKU example |
-|----------|---------------|-------------|
-| Compute | **Virtual Machine** (Linux) | Standard_D8s_v5 (8 vCPU, 32 GB) |
-| Disk | Managed OS + data disk | 256 GB Premium SSD |
-| Network | **Virtual Network** + NSG | Allow 443 inbound |
-| Public IP | **Public IP** | Static, for verify domain |
-| DNS | **Azure DNS** zone | `yourcompany.com` |
-| TLS | **Key Vault** certificate or App Gateway | — |
-| Backup | **Azure Backup** VM policy | Daily |
+| Tier | Azure VM SKU | vCPU | RAM | OS disk | Data disk | When to use |
+|------|--------------|------|-----|---------|-----------|-------------|
+| Pilot | `Standard_D4s_v5` | 4 | 16 GB | 128 GB Premium SSD | — | UAT, demos |
+| **Production** | `Standard_D8s_v5` | 8 | 32 GB | 128 GB Premium SSD | 256 GB Premium SSD | **Default recommendation** |
+| Enterprise | `Standard_D16s_v5` | 16 | 64 GB | 128 GB Premium SSD | 512 GB Premium SSD | High volume + AI |
 
-**No managed DB required** — Postgres/Redis/MinIO run in Compose on the VM (same as on-prem).
+Additional Azure resources (all tiers):
+
+| Resource | Azure service | Recommended SKU |
+|----------|---------------|-----------------|
+| Compute | Linux VM | See table above |
+| Disk | Managed disks | Premium SSD (production); Standard SSD (pilot only) |
+| Network | VNet + NSG | `/16` VNet; NSG allow 443 inbound |
+| Public IP | Static Standard SKU | For verify domain |
+| DNS | Azure DNS zone | Per domain |
+| TLS | Key Vault cert or App Gateway | Production: App Gateway WAF_v2 |
+| Backup | Azure Backup | Daily VM snapshot; 30-day retention |
+
+**No managed DB required** — Postgres, Redis, and MinIO run in Compose on the VM (same as on-prem).
 
 #### Option B — Production (AKS + managed services)
 
 Best for HA, scale, and separation of concerns.
+
+| Component | Pilot | Production *(recommended)* | Enterprise |
+|-----------|-------|--------------------------|------------|
+| **AKS nodes** | 2× `Standard_D2s_v5` (2 vCPU, 8 GB each) | 3× `Standard_D4s_v5` (4 vCPU, 16 GB each) | 3–5× `Standard_D8s_v5` (8 vCPU, 32 GB each) |
+| **AKS system pool** | Default | 2× `Standard_D2s_v5` (dedicated system node pool) | 3× `Standard_D2s_v5` |
+| **PostgreSQL Flexible** | `Burstable_B2s` (2 vCPU, 4 GB), 64 GB | `Standard_D4ds_v4` GP HA, 128 GB | `Standard_D8ds_v4` GP HA, 256–512 GB |
+| **Azure Cache for Redis** | Basic C1 (1 GB) | Premium P1 (6 GB, persistence) | Premium P2 (12 GB) or P3 |
+| **Blob Storage** | Standard LRS, 100 GB | Standard GRS, 500 GB | Standard GRS + lifecycle, 1 TB+ |
+| **ACR** | Basic | Standard | Premium (geo-replication) |
+| **Application Gateway** | — | WAF_v2, 1 instance | WAF_v2, autoscale 2–10 |
+| **Front Door** (optional) | — | Standard | Premium + WAF |
+| **Key Vault** | Standard | Standard + purge protection | Premium HSM keys |
+| **Log Analytics** | 5 GB/month ingest | 20 GB/month | 50+ GB/month |
+
+**Pod resource requests** (Helm defaults — adjust per tier):
+
+| Workload | Production request | Enterprise request |
+|----------|-------------------|-------------------|
+| API (×2 replicas) | 250m CPU, 256 Mi RAM | 500m CPU, 512 Mi RAM |
+| Admin web (×2) | 100m CPU, 128 Mi RAM | 200m CPU, 256 Mi RAM |
+| Worker (×1) | 250m CPU, 256 Mi RAM | 500m CPU, 512 Mi RAM |
+
+Enable **Horizontal Pod Autoscaler** on API for verify traffic spikes (target CPU 70%, max 10 replicas).
 
 | Resource | Azure service | Purpose |
 |----------|---------------|---------|
@@ -478,13 +559,20 @@ Best for HA, scale, and separation of concerns.
 
 #### Estimated monthly cost (Option B, rough)
 
-| Service | Approx. cost (USD) |
+| Tier | Service breakdown | Approx. total (USD/mo) |
+|------|-------------------|------------------------|
+| **Pilot** | 2× D2s_v5 nodes, Burstable Postgres, Basic Redis, LRS storage | $400–600 |
+| **Production** | 3× D4s_v5 nodes, GP Postgres HA, Redis P1, GRS storage, App Gateway | $1,000–1,500 |
+| **Enterprise** | 5× D8s_v5 nodes, D8 Postgres HA, Redis P2, Front Door Premium | $2,000–3,500 |
+
+| Service (Production tier) | Approx. cost (USD) |
 |---------|-------------------|
 | AKS control plane | ~$75 |
 | 3× worker nodes (D4s_v5) | ~$400 |
 | PostgreSQL Flexible (GP, HA) | ~$200–400 |
 | Redis Premium P1 | ~$250 |
 | Blob Storage + egress | ~$20–100 |
+| Application Gateway WAF_v2 | ~$150–250 |
 | Key Vault, Monitor | ~$50 |
 | **Total** | **~$1,000–1,500/mo** (varies by region) |
 

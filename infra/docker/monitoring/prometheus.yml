@@ -3,6 +3,6 @@ global:
 
 scrape_configs:
   - job_name: truemark-api
-    metrics_path: /health
+    metrics_path: /api/v1/health
     static_configs:
       - targets: ['api:3001']

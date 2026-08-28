@@ -24,11 +24,12 @@ export interface VerificationResponse {
   verificationPublicId: string;
   product?: {
     name: string;
-    brand: string;
-    manufacturer: string;
+    category: string;
+    productType: string;
+    productCode?: string;
     batch?: string;
     serial?: string;
-    sku?: string;
+    tags?: string[];
   };
   message: string;
   aiAvailable: boolean;
@@ -45,6 +46,22 @@ export class CoreVerificationService {
     private readonly signalEvaluator: SignalEvaluatorService,
   ) {}
 
+  async getConsumerBranding(hostname: string) {
+    const domainRecord = await this.domainService.resolveTenantByHostname(hostname);
+    if (!domainRecord) {
+      return { companyDisplayName: null };
+    }
+
+    const profile = await this.prisma.client.tenantProfile.findUnique({
+      where: { tenantId: domainRecord.tenantId },
+      select: { companyDisplayName: true },
+    });
+
+    return {
+      companyDisplayName: profile?.companyDisplayName ?? domainRecord.tenant.name,
+    };
+  }
+
   async verifyByQr(
     url: string,
     hostname: string,
@@ -58,19 +75,7 @@ export class CoreVerificationService {
       return this.unableResponse(correlationId ?? uuidv4());
     }
 
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(url);
-    } catch {
-      return this.unableResponse(correlationId ?? uuidv4());
-    }
-
-    if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname.toLowerCase() !== hostname.toLowerCase()) {
-      return this.unableResponse(correlationId ?? uuidv4());
-    }
-
-    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
-    const token = pathParts[pathParts.length - 1];
+    const token = this.extractQrToken(url, hostname);
     if (!token) {
       return this.unableResponse(correlationId ?? uuidv4());
     }
@@ -113,7 +118,8 @@ export class CoreVerificationService {
               include: {
                 productVariant: {
                   include: {
-                    product: { include: { brand: { include: { manufacturer: true } } } },
+                    productType: { include: { category: true } },
+                    tags: { include: { tag: true } },
                   },
                 },
               },
@@ -176,11 +182,12 @@ export class CoreVerificationService {
           status: LifecycleStatus;
           productVariant: {
             name: string;
-            product: {
+            productCode: string;
+            productType: {
               name: string;
-              sku: string | null;
-              brand: { name: string; manufacturer: { name: string } };
+              category: { name: string };
             };
+            tags?: Array<{ tag: { name: string } }>;
           };
         };
         serial?: { serialNumber: string } | null;
@@ -301,7 +308,9 @@ export class CoreVerificationService {
       where: { tenantId: params.tenantId },
     });
 
-    const windowStart = new Date(Date.now() - (fraudConfig?.highScanWindowMinutes ?? 30) * 60 * 1000);
+    const windowStart = new Date(
+      Date.now() - (fraudConfig?.highScanWindowMinutes ?? 30) * 60 * 1000,
+    );
     const recentScans = previousEvents.filter((e) => e.createdAt >= windowStart).length;
 
     const evaluation = this.signalEvaluator.evaluateReuse({
@@ -358,6 +367,29 @@ export class CoreVerificationService {
     return response;
   }
 
+  /**
+   * Accepts a full HTTPS verification URL or a raw QR payload (the token printed in the barcode).
+   * URL payloads must use HTTPS and match the request hostname.
+   */
+  private extractQrToken(payload: string, hostname: string): string | null {
+    const trimmed = payload.trim();
+    if (!trimmed) return null;
+
+    try {
+      const parsedUrl = new URL(trimmed);
+      if (
+        parsedUrl.protocol !== 'https:' ||
+        parsedUrl.hostname.toLowerCase() !== hostname.toLowerCase()
+      ) {
+        return null;
+      }
+      const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+      return pathParts[pathParts.length - 1] ?? null;
+    } catch {
+      return trimmed;
+    }
+  }
+
   private async loadCredentialByToken(tenantId: string, token: string) {
     const qr = await this.prisma.client.qrCode.findFirst({
       where: { tenantId, token },
@@ -369,7 +401,8 @@ export class CoreVerificationService {
               include: {
                 productVariant: {
                   include: {
-                    product: { include: { brand: { include: { manufacturer: true } } } },
+                    productType: { include: { category: true } },
+                    tags: { include: { tag: true } },
                   },
                 },
               },
@@ -394,24 +427,26 @@ export class CoreVerificationService {
       batchCode: string;
       productVariant: {
         name: string;
-        product: {
+        productCode: string;
+        productType: {
           name: string;
-          sku: string | null;
-          brand: { name: string; manufacturer: { name: string } };
+          category: { name: string };
         };
+        tags?: Array<{ tag: { name: string } }>;
       };
     };
     serial?: { serialNumber: string } | null;
   }) {
     const pv = unit.batch.productVariant;
     return {
-      productName: pv.product.name,
+      productName: pv.name,
       variantName: pv.name,
-      brand: pv.product.brand.name,
-      manufacturer: pv.product.brand.manufacturer.name,
+      category: pv.productType.category.name,
+      productType: pv.productType.name,
+      productCode: pv.productCode,
       batch: unit.batch.batchCode,
       serial: unit.serial?.serialNumber,
-      sku: pv.product.sku,
+      tags: pv.tags?.map((t) => t.tag.name) ?? [],
     };
   }
 
@@ -420,7 +455,8 @@ export class CoreVerificationService {
       result: VerificationResult.UNABLE_TO_VERIFY,
       riskLevel: 'LOW',
       verificationPublicId: '',
-      message: 'This QR/code could not be verified. Please check that you are using the official TrueMark verification page.',
+      message:
+        'This QR/code could not be verified. Please check that you are using the official TrueMark verification page.',
       aiAvailable: false,
       aiMode: AiMode.AI_DISABLED,
       correlationId,
@@ -441,7 +477,11 @@ export class CoreVerificationService {
     location?: LocationInput;
     productSnapshot?: object;
     riskLevel: string;
-    fraudSignals?: Array<{ type: FraudSignalType; severity: string; evidence: Record<string, unknown> }>;
+    fraudSignals?: Array<{
+      type: FraudSignalType;
+      severity: string;
+      evidence: Record<string, unknown>;
+    }>;
     aiMode?: AiMode;
   }): Promise<VerificationResponse> {
     const event = await this.prisma.client.verificationEvent.create({
@@ -482,14 +522,17 @@ export class CoreVerificationService {
       },
     });
 
-    const snapshot = params.productSnapshot as {
-      productName?: string;
-      brand?: string;
-      manufacturer?: string;
-      batch?: string;
-      serial?: string;
-      sku?: string;
-    } | undefined;
+    const snapshot = params.productSnapshot as
+      | {
+          productName?: string;
+          category?: string;
+          productType?: string;
+          productCode?: string;
+          batch?: string;
+          serial?: string;
+          tags?: string[];
+        }
+      | undefined;
 
     const aiMode = params.aiMode ?? AiMode.AI_DISABLED;
     const messages: Record<VerificationResult, string> = {
@@ -497,7 +540,8 @@ export class CoreVerificationService {
       [VerificationResult.REVERIFIED]: 'This product has been verified again.',
       [VerificationResult.SUSPICIOUS]: 'This product identity has unusual verification activity.',
       [VerificationResult.POSSIBLE_CLONE]: 'This product identity has unusual geographic activity.',
-      [VerificationResult.POSSIBLE_COUNTERFEIT]: 'This product may not be genuine. Please contact the manufacturer.',
+      [VerificationResult.POSSIBLE_COUNTERFEIT]:
+        'This product may not be genuine. Please contact the manufacturer.',
       [VerificationResult.CONFIRMED_COUNTERFEIT]: 'This product has been confirmed as counterfeit.',
       [VerificationResult.INVALID_QR]: 'This QR/code could not be verified.',
       [VerificationResult.UNKNOWN_QR]: 'This QR/code could not be verified.',
@@ -516,11 +560,12 @@ export class CoreVerificationService {
       product: snapshot
         ? {
             name: snapshot.productName ?? '',
-            brand: snapshot.brand ?? '',
-            manufacturer: snapshot.manufacturer ?? '',
+            category: snapshot.category ?? '',
+            productType: snapshot.productType ?? '',
+            productCode: snapshot.productCode,
             batch: snapshot.batch,
             serial: snapshot.serial,
-            sku: snapshot.sku,
+            tags: snapshot.tags,
           }
         : undefined,
       message: messages[params.result],

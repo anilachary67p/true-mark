@@ -5,14 +5,21 @@
 
 ## Prerequisites
 
+### Recommended instance specifications
+
+| Tier | Use case | vCPU | RAM | Disk (SSD) | Notes |
+|------|----------|------|-----|------------|-------|
+| **Pilot** | UAT, single tenant, &lt;100k units | 4 | 16 GB | 100 GB | Not for production traffic |
+| **Production** | 1–5 tenants, &lt;5M units | 8 | 32 GB | 256 GB | **Default recommendation** |
+| **Enterprise** | High volume, AI, HA pair | 16 | 64 GB | 512 GB–1 TB | Consider app + DB split |
+
+Full per-container breakdown and scaling rules: [On-Prem Install — Instance specs](../on-prem/INSTALL.md#recommended-instance-specifications).
+
 | Requirement    | Version                         | Notes                             |
 | -------------- | ------------------------------- | --------------------------------- |
 | Docker         | ≥ 24                            | Docker Engine or Docker Desktop   |
 | Docker Compose | ≥ 2.20                          | Plugin or standalone              |
 | OS             | Linux (Ubuntu 22.04+ / RHEL 8+) | 64-bit x86_64 or ARM64            |
-| CPU            | 4 cores minimum                 | 8+ recommended                    |
-| RAM            | 16 GB minimum                   | 32 GB recommended                 |
-| Disk           | 100 GB SSD minimum              | 500 GB for production with images |
 | Network        | Outbound HTTPS (optional)       | Only if using cloud AI (hybrid)   |
 | Domain         | Customer-managed DNS            | For verification domains          |
 

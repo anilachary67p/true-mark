@@ -1,12 +1,42 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const VERIFY_HOSTNAME =
-  process.env.NEXT_PUBLIC_VERIFY_HOSTNAME ??
-  (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
+const QrScanner = dynamic(
+  () => import('@/components/QrScanner').then((mod) => ({ default: mod.QrScanner })),
+  {
+    ssr: false,
+    loading: () => (
+      <p style={{ textAlign: 'center', color: '#888', fontSize: 14 }}>Loading scanner…</p>
+    ),
+  },
+);
+
+function resolveApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:3001`;
+    }
+  }
+  return process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:3001';
+}
+
+function resolveVerifyHostname(): string {
+  if (process.env.NEXT_PUBLIC_VERIFY_HOSTNAME) {
+    return process.env.NEXT_PUBLIC_VERIFY_HOSTNAME;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'verify.localhost';
+    }
+    return host;
+  }
+  return 'verify.localhost';
+}
 
 interface VerifyResult {
   result: string;
@@ -17,10 +47,12 @@ interface VerifyResult {
   aiMode: string;
   product?: {
     name: string;
-    brand: string;
-    manufacturer: string;
+    category: string;
+    productType: string;
+    productCode?: string;
     batch?: string;
     serial?: string;
+    tags?: string[];
   };
 }
 
@@ -38,45 +70,73 @@ function VerifyContent() {
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [companyDisplayName, setCompanyDisplayName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const hostname = resolveVerifyHostname();
+    const apiUrl = resolveApiUrl();
+    fetch(`${apiUrl}/api/v1/public/verify/branding?hostname=${encodeURIComponent(hostname)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { companyDisplayName?: string | null } | null) => {
+        if (data?.companyDisplayName) setCompanyDisplayName(data.companyDisplayName);
+      })
+      .catch(() => {
+        // Branding is optional; page still works without it.
+      });
+  }, []);
+
+  const verifyQr = useCallback(async (url: string) => {
+    const payload = url.trim();
+    const hostname = resolveVerifyHostname();
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const apiUrl = resolveApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/public/verify/qr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: payload, hostname }),
+      });
+      const text = await res.text();
+      const data = text ? (JSON.parse(text) as VerifyResult & { message?: string }) : null;
+      if (!res.ok) {
+        setError(data?.message ?? `Verification request failed (${res.status})`);
+        return;
+      }
+      if (!data) {
+        setError('Empty response from verification service.');
+        return;
+      }
+      setResult(data);
+    } catch (err) {
+      const hint =
+        err instanceof TypeError
+          ? 'Cannot reach the API. Start the stack with pnpm dev (API on port 3001).'
+          : 'Verification failed. Please try again.';
+      setError(hint);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const qrUrl = searchParams.get('url');
     if (qrUrl) verifyQr(qrUrl);
-  }, [searchParams]);
-
-  async function verifyQr(url: string) {
-    setLoading(true);
-    setError('');
-    setResult(null);
-    try {
-      const res = await fetch(`${API_URL}/api/v1/public/verify/qr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, hostname: VERIFY_HOSTNAME }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message ?? `Verification request failed (${res.status})`);
-        return;
-      }
-      setResult(data);
-    } catch {
-      setError('Verification failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [searchParams, verifyQr]);
 
   async function verifyManual(e: React.FormEvent) {
     e.preventDefault();
+    const hostname = resolveVerifyHostname();
     setLoading(true);
     setError('');
     setResult(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/verify/code`, {
+      const apiUrl = resolveApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/public/verify/code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, hostname: VERIFY_HOSTNAME }),
+        body: JSON.stringify({ code, hostname }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -98,6 +158,19 @@ function VerifyContent() {
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '2rem 1rem' }}>
       <header style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        {companyDisplayName && (
+          <p
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: '#2563eb',
+              letterSpacing: '0.02em',
+              marginBottom: 10,
+            }}
+          >
+            {companyDisplayName}
+          </p>
+        )}
         <h1 style={{ fontSize: 28, fontWeight: 700 }}>TRUE MARK</h1>
         <p style={{ color: '#666', marginTop: 8 }}>Verify your product authenticity</p>
       </header>
@@ -114,6 +187,7 @@ function VerifyContent() {
           <p style={{ marginBottom: '1rem', textAlign: 'center' }}>
             Scan the QR code to verify your product.
           </p>
+          <QrScanner onScan={verifyQr} disabled={loading} />
           <div style={{ textAlign: 'center', margin: '1.5rem 0', color: '#888' }}>— OR —</div>
           <form onSubmit={verifyManual}>
             <label style={{ display: 'block', marginBottom: '1rem' }}>
@@ -183,10 +257,16 @@ function VerifyContent() {
           {result.product && (
             <div style={{ borderTop: '1px solid #eee', paddingTop: '1rem' }}>
               <Row label="Product" value={result.product.name} />
-              <Row label="Brand" value={result.product.brand} />
-              <Row label="Manufacturer" value={result.product.manufacturer} />
+              <Row label="Category" value={result.product.category} />
+              <Row label="Product type" value={result.product.productType} />
+              {result.product.productCode && (
+                <Row label="Product code" value={result.product.productCode} />
+              )}
               {result.product.batch && <Row label="Batch" value={result.product.batch} />}
               {result.product.serial && <Row label="Serial" value={result.product.serial} />}
+              {result.product.tags && result.product.tags.length > 0 && (
+                <Row label="Tags" value={result.product.tags.join(', ')} />
+              )}
             </div>
           )}
           {result.aiAvailable && (
@@ -237,7 +317,7 @@ function AiCapturePanel({
     setBusy(true);
     setAiError('');
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/verify/ai/initiate`, {
+      const res = await fetch(`${resolveApiUrl()}/api/v1/public/verify/ai/initiate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ verificationPublicId }),
@@ -271,7 +351,7 @@ function AiCapturePanel({
     form.append('image', file);
     form.append('viewAngle', viewAngle);
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/verify/ai/${jobId}/images`, {
+      const res = await fetch(`${resolveApiUrl()}/api/v1/public/verify/ai/${jobId}/images`, {
         method: 'POST',
         body: form,
       });
@@ -290,7 +370,7 @@ function AiCapturePanel({
     if (!jobId) return;
     setBusy(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/verify/ai/${jobId}/process`, {
+      const res = await fetch(`${resolveApiUrl()}/api/v1/public/verify/ai/${jobId}/process`, {
         method: 'POST',
       });
       const data = await res.json();

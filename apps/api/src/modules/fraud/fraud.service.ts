@@ -50,6 +50,32 @@ export class FraudService {
     });
   }
 
+  async getConfig(tenantId: string) {
+    return this.prisma.client.fraudConfig.findUnique({ where: { tenantId } });
+  }
+
+  async updateConfig(
+    tenantId: string,
+    data: {
+      highScanCount?: number;
+      highScanWindowMinutes?: number;
+      maxTravelSpeedKmh?: number;
+      impossibleTravelMinutes?: number;
+    },
+  ) {
+    return this.prisma.client.fraudConfig.upsert({
+      where: { tenantId },
+      create: {
+        tenantId,
+        highScanCount: data.highScanCount ?? 50,
+        highScanWindowMinutes: data.highScanWindowMinutes ?? 30,
+        maxTravelSpeedKmh: data.maxTravelSpeedKmh ?? 900,
+        impossibleTravelMinutes: data.impossibleTravelMinutes ?? 60,
+      },
+      update: data,
+    });
+  }
+
   async getSummary(tenantId: string) {
     const signals = await this.getSignals(tenantId, 200);
     const highSeverity = signals.filter((s) => s.severity === 'HIGH').length;

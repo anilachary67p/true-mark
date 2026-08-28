@@ -29,4 +29,8 @@ export const E2E_FIXTURES = {
   manualCode: 'TM-E2E0-FIXD-0001',
   qrUrl: 'https://verify.localhost/v/e2eFixedQrToken0001',
   unitId: '00000000-0000-0000-0000-000000000200',
+  /** Raw QR payload for camera-scan demo (value encoded in the barcode itself). */
+  scanQrPayload: '1234512345123451234512345',
+  scanQrUnitId: '00000000-0000-0000-0000-000000000201',
+  scanQrManualCode: 'TM-SCAN-12345-0001',
 } as const;

@@ -22,6 +22,7 @@ import { AiOrchestrationModule } from './modules/ai-orchestration/ai-orchestrati
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { JobsModule } from './jobs/jobs.module';
 import { ProvidersModule } from './providers/providers.module';
+import { LicenseModule } from './modules/license/license.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ProvidersModule } from './providers/providers.module';
     AiOrchestrationModule,
     AnalyticsModule,
     JobsModule,
+    LicenseModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

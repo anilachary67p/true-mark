@@ -7,7 +7,14 @@ export class VerificationHistoryService {
 
   async listForTenant(
     tenantId: string,
-    options: { limit?: number; offset?: number; productUnitId?: string; result?: string } = {},
+    options: {
+      limit?: number;
+      offset?: number;
+      productUnitId?: string;
+      result?: string;
+      from?: Date;
+      to?: Date;
+    } = {},
   ) {
     const limit = Math.min(options.limit ?? 50, 200);
     const offset = options.offset ?? 0;
@@ -15,6 +22,14 @@ export class VerificationHistoryService {
       tenantId,
       ...(options.productUnitId ? { productUnitId: options.productUnitId } : {}),
       ...(options.result ? { result: options.result as never } : {}),
+      ...(options.from || options.to
+        ? {
+            createdAt: {
+              ...(options.from ? { gte: options.from } : {}),
+              ...(options.to ? { lte: options.to } : {}),
+            },
+          }
+        : {}),
     };
 
     const [items, total] = await Promise.all([
