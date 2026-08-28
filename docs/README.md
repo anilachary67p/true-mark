@@ -13,8 +13,8 @@
 | Work on Consumer UI | [Consumer Web](./web/CONSUMER_WEB.md) |
 | Understand the database | [Database Guide](./database/DATABASE.md) |
 | Deploy to AWS | [Terraform (AWS)](./terraform/AWS.md) · [Cloud Runbook](./runbooks/cloud-deploy.md) |
-| Deploy on-premises | [On-Prem Install](./on-prem/INSTALL.md) · [On-Prem Runbook](./runbooks/onprem-install.md) |
-| Deploy to Azure | [Azure Guide](./azure/AZURE.md) *(planned)* |
+| Deploy on-premises | [Production Setup Guide](./deployment/PRODUCTION_SETUP_GUIDE.md) · [On-Prem Install](./on-prem/INSTALL.md) |
+| Deploy to Azure | [Production Setup Guide](./deployment/PRODUCTION_SETUP_GUIDE.md) · [Azure Runbook](./runbooks/azure-deploy.md) |
 | Use Docker / Compose | [Docker Guide](./docker/DOCKER.md) |
 | Use Kubernetes / Helm | [Helm / Kubernetes](./helm/KUBERNETES.md) |
 | Understand architecture | [System Architecture](./architecture/SYSTEM.md) |
@@ -50,6 +50,7 @@
 
 | Document | Description |
 |----------|-------------|
+| [**Production Setup Guide**](./deployment/PRODUCTION_SETUP_GUIDE.md) | **Start here** — on-prem, Azure, Auth0, full checklists |
 | [Deployment Overview](./deployment/DEPLOYMENT_OVERVIEW.md) | SaaS, on-prem, hybrid deployment models |
 | [Infrastructure Overview](./infrastructure/INFRASTRUCTURE.md) | Components, ports, dependencies |
 | [Docker](./docker/DOCKER.md) | Local dev compose, Dockerfiles, on-prem stack |

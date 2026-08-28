@@ -27,14 +27,14 @@
 
 ## Deployment guides
 
-| Target           | Quick start                                     | Detailed runbook                                 |
-| ---------------- | ----------------------------------------------- | ------------------------------------------------ |
-| **AWS**          | [Terraform AWS](./terraform/AWS.md)             | [Cloud Deploy](../runbooks/cloud-deploy.md)      |
-| **On-premises**  | [On-Prem Install](./on-prem/INSTALL.md)         | [On-Prem Runbook](../runbooks/onprem-install.md) |
-| **Kubernetes**   | [Helm](./helm/KUBERNETES.md)                    | [Cloud Deploy](../runbooks/cloud-deploy.md)      |
-| **Docker (dev)** | [Docker](./docker/DOCKER.md)                    | —                                                |
-| **Azure**        | [Azure](./azure/AZURE.md)                       | _(planned)_                                      |
-| **Hybrid**       | [Hybrid Architecture](./architecture/HYBRID.md) | [DR](../runbooks/DR.md)                          |
+| Target           | Start here                                                                      | Detailed runbook                                 |
+| ---------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **On-premises**  | [Production Setup Guide](./deployment/PRODUCTION_SETUP_GUIDE.md)                | [On-Prem Runbook](../runbooks/onprem-install.md) |
+| **Azure**        | [Production Setup Guide](./deployment/PRODUCTION_SETUP_GUIDE.md)                | [Azure Runbook](../runbooks/azure-deploy.md)     |
+| **AWS**          | [Terraform AWS](./terraform/AWS.md)                                             | [Cloud Deploy](../runbooks/cloud-deploy.md)      |
+| **Kubernetes**   | [Helm](./helm/KUBERNETES.md)                                                    | [Cloud Deploy](../runbooks/cloud-deploy.md)      |
+| **Docker (dev)** | [Docker](./docker/DOCKER.md)                                                    | —                                                |
+| **Hybrid**       | [Hybrid Architecture](./architecture/HYBRID.md)                                 | [DR](../runbooks/DR.md)                          |
 
 ## Release process (recommended)
 

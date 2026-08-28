@@ -1,6 +1,7 @@
 # Azure Deployment
 
-> **Status: Planned** — Azure-specific Terraform and runbooks are not yet implemented in this repository.
+> **Start here:** [Production Setup Guide](../deployment/PRODUCTION_SETUP_GUIDE.md) (§6 Azure)  
+> **Runbook:** [Azure Deploy Runbook](../runbooks/azure-deploy.md)
 
 ## Current state
 
@@ -51,10 +52,10 @@ See [Hybrid Architecture](../architecture/HYBRID.md) for boundary rules.
 
 ## Workaround today
 
-To run on Azure before native IaC exists:
+See [Production Setup Guide](../deployment/PRODUCTION_SETUP_GUIDE.md) for full Azure steps:
 
-1. Deploy using [On-Prem Docker stack](../docker/DOCKER.md) on Azure VMs, **or**
-2. Deploy to AKS manually using [Helm chart](../../infra/helm/truemark/) with Azure-managed PostgreSQL and Redis connection strings
+1. **Simple:** VM + Docker Compose (same as on-prem)
+2. **Production:** AKS + PostgreSQL Flexible + Redis + Blob + Key Vault + Helm
 
 ## Related docs
 
