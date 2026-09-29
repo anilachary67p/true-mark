@@ -63,25 +63,23 @@ export function PlatformDashboard() {
     }
   }, []);
 
-  const loadTenant = useCallback(
-    async (tenantId: string, nextRange: DateRangeValue) => {
-      setDrillLoading(true);
-      try {
-        setDrillDown(await api.getPlatformTenantDashboard(tenantId, nextRange));
-        setSelectedTenantId(tenantId);
-      } finally {
-        setDrillLoading(false);
-      }
-    },
-    [],
-  );
+  const loadTenant = useCallback(async (tenantId: string, nextRange: DateRangeValue) => {
+    setDrillLoading(true);
+    try {
+      setDrillDown(await api.getPlatformTenantDashboard(tenantId, nextRange));
+      setSelectedTenantId(tenantId);
+    } finally {
+      setDrillLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     load(range);
   }, [range, load]);
 
   useEffect(() => {
-    if (selectedTenantId) loadTenant(selectedTenantId, range);
+    if (!selectedTenantId) return;
+    loadTenant(selectedTenantId, range);
   }, [selectedTenantId, range, loadTenant]);
 
   if (loading && !data) {
@@ -97,7 +95,9 @@ export function PlatformDashboard() {
 
   const volume = data.dailyVolume.map((d) => d.count);
   const prevVolume = data.previousDailyVolume.map((d) => d.count);
-  const tenantBars = data.tenantBreakdown.slice(0, 8).map((t) => t.verifications);
+  const topTenants = data.tenantBreakdown.slice(0, 8);
+  const tenantBars = topTenants.map((t) => t.verifications);
+  const tenantLabels = topTenants.map((t) => t.tenantName.split(' ')[0]);
 
   return (
     <>
@@ -125,13 +125,25 @@ export function PlatformDashboard() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <DeltaStatCard label="Organizations" metric={data.totals.tenants} accent="primary" />
-        <DeltaStatCard label="Active tenants (with scans)" metric={data.totals.activeTenants} accent="info" />
-        <DeltaStatCard label="Total verifications" metric={data.totals.verifications} accent="primary" />
+        <DeltaStatCard
+          label="Active tenants (with scans)"
+          metric={data.totals.activeTenants}
+          accent="info"
+        />
+        <DeltaStatCard
+          label="Total verifications"
+          metric={data.totals.verifications}
+          accent="primary"
+        />
         <DeltaStatCard label="Verified" metric={data.totals.verified} accent="success" />
         <DeltaStatCard label="Suspicious" metric={data.totals.suspicious} accent="warning" />
         <DeltaStatCard label="Product variants" metric={data.totals.variants} accent="info" />
         <DeltaStatCard label="Product types" metric={data.totals.productTypes} />
-        <DeltaStatCard label="Open investigations" metric={data.totals.openInvestigations} accent="error" />
+        <DeltaStatCard
+          label="Open investigations"
+          metric={data.totals.openInvestigations}
+          accent="error"
+        />
       </div>
 
       <div className="mb-6 grid gap-5 xl:grid-cols-12">
@@ -141,10 +153,11 @@ export function PlatformDashboard() {
               <span className="h-0.5 w-4 rounded bg-hope-primary" /> Current period
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-0.5 w-4 rounded border-t-2 border-dashed border-slate-400" /> Previous period
+              <span className="h-0.5 w-4 rounded border-t-2 border-dashed border-slate-400" />{' '}
+              Previous period
             </span>
           </div>
-          <div className="h-56">
+          <div className="h-56 rounded-xl bg-gradient-to-b from-slate-50/80 to-transparent px-2 pt-2">
             <MiniLineChart points={volume} points2={prevVolume} />
           </div>
         </PageCard>
@@ -173,9 +186,9 @@ export function PlatformDashboard() {
 
       <div className="mb-6 grid gap-5 lg:grid-cols-2">
         <PageCard title="Top tenants by verifications">
-          <MiniBarChart values={tenantBars} />
-          <div className="mt-3 space-y-1">
-            {data.tenantBreakdown.slice(0, 8).map((t) => (
+          <MiniBarChart values={tenantBars} labels={tenantLabels} height={128} />
+          <div className="mt-4 space-y-1 border-t border-slate-100 pt-3">
+            {topTenants.map((t) => (
               <div key={t.tenantId} className="flex justify-between text-xs text-hope-secondary">
                 <span className="truncate">{t.tenantName}</span>
                 <span className="font-semibold text-hope-dark">{t.verifications}</span>
@@ -191,7 +204,8 @@ export function PlatformDashboard() {
               .slice(0, 8)
               .map((r) => {
                 const delta = r.count - r.previous;
-                const pct = r.previous > 0 ? Math.round((delta / r.previous) * 100) : r.count > 0 ? 100 : 0;
+                const pct =
+                  r.previous > 0 ? Math.round((delta / r.previous) * 100) : r.count > 0 ? 100 : 0;
                 return (
                   <div key={r.result} className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-hope-secondary">{r.result.replace(/_/g, ' ')}</span>
@@ -213,7 +227,16 @@ export function PlatformDashboard() {
 
       <PageCard noPadding title="Tenant breakdown — click a row for detailed stats">
         <VirtualizedTable
-          columns={['Organization', 'Status', 'Deployment', 'Verifications', 'Verified', 'Suspicious', 'Catalog', '']}
+          columns={[
+            'Organization',
+            'Status',
+            'Deployment',
+            'Verifications',
+            'Verified',
+            'Suspicious',
+            'Catalog',
+            '',
+          ]}
           rows={data.tenantBreakdown}
           rowKey={(t) => t.tenantId}
           maxHeight={420}
@@ -222,7 +245,7 @@ export function PlatformDashboard() {
               selectedTenantId === t.tenantId
                 ? 'cursor-pointer bg-hope-primary/5'
                 : 'cursor-pointer hover:bg-slate-50',
-            onClick: () => loadTenant(t.tenantId, range),
+            onClick: () => setSelectedTenantId(t.tenantId),
           })}
           renderRow={(t) => (
             <>
@@ -263,18 +286,27 @@ export function PlatformDashboard() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <DeltaStatCard label="Verifications" metric={drillDown.totals.verifications} />
             <DeltaStatCard label="Verified" metric={drillDown.totals.verified} accent="success" />
-            <DeltaStatCard label="Suspicious" metric={drillDown.totals.suspicious} accent="warning" />
-            <DeltaStatCard label="AI jobs" metric={drillDown.totals.aiJobsCompleted} accent="info" />
+            <DeltaStatCard
+              label="Suspicious"
+              metric={drillDown.totals.suspicious}
+              accent="warning"
+            />
+            <DeltaStatCard
+              label="AI jobs"
+              metric={drillDown.totals.aiJobsCompleted}
+              accent="info"
+            />
             <PageCard>
               <p className="text-sm text-hope-secondary">Catalog</p>
               <p className="mt-2 text-lg font-bold text-hope-dark">
-                {drillDown.catalog.categories} / {drillDown.catalog.productTypes} / {drillDown.catalog.variants}
+                {drillDown.catalog.categories} / {drillDown.catalog.productTypes} /{' '}
+                {drillDown.catalog.variants}
               </p>
               <p className="text-[10px] text-hope-muted">Categories · Types · Variants</p>
             </PageCard>
           </div>
           <PageCard title={`${drillDown.tenant.name} — verification trend`}>
-            <div className="h-48">
+            <div className="h-52 rounded-xl bg-gradient-to-b from-slate-50/80 to-transparent px-2 pt-2">
               <MiniLineChart
                 points={drillDown.dailyVolume.map((d) => d.count)}
                 points2={drillDown.previousDailyVolume.map((d) => d.count)}

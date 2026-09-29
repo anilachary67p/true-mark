@@ -98,14 +98,19 @@ export default function AnalyticsPage() {
         dashboard && (
           <>
             <PageCard title="Daily verification volume" className="mb-6">
-              <div className="h-52">
+              <div className="h-56 rounded-xl bg-gradient-to-b from-slate-50/80 to-transparent px-2 pt-2">
                 <MiniLineChart points={dailyVolume} />
               </div>
             </PageCard>
 
             <div className="mb-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               {metrics.map(([k, v]) => (
-                <StatCard key={k} label={formatMetricLabel(k)} value={String(v)} showChart={false} />
+                <StatCard
+                  key={k}
+                  label={formatMetricLabel(k)}
+                  value={String(v)}
+                  showChart={false}
+                />
               ))}
             </div>
           </>

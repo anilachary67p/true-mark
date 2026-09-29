@@ -58,11 +58,11 @@ export function VirtualizedTable<T>({
             </TR>
           </THead>
           <tbody>
-            <TR>
+            <tr>
               <TD colSpan={columns.length}>
                 <p className="py-10 text-center text-sm text-hope-secondary">{emptyMessage}</p>
               </TD>
-            </TR>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -75,11 +75,7 @@ export function VirtualizedTable<T>({
     virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0);
 
   return (
-    <div
-      ref={parentRef}
-      className={cn('overflow-auto', className)}
-      style={{ maxHeight }}
-    >
+    <div ref={parentRef} className={cn('overflow-auto', className)} style={{ maxHeight }}>
       <table className="w-full text-left text-sm">
         <THead className="sticky top-0 z-10">
           <TR>

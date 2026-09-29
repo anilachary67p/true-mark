@@ -1,6 +1,6 @@
 import { LucideIcon } from 'lucide-react';
 import { cn } from '@/components/ui/cn';
-import { MiniBarChart } from '@/components/ui/MiniBarChart';
+import { MiniLineChart } from '@/components/ui/MiniLineChart';
 
 const ACCENT: Record<string, string> = {
   primary: 'text-hope-primary',
@@ -11,6 +11,15 @@ const ACCENT: Record<string, string> = {
   secondary: 'text-hope-secondary',
 };
 
+const CHART_STROKE: Record<string, string> = {
+  primary: '#3a57e8',
+  success: '#10b981',
+  warning: '#f59e0b',
+  error: '#ef4444',
+  info: '#0ea5e9',
+  secondary: '#64748b',
+};
+
 export function StatCard({
   label,
   value,
@@ -18,6 +27,7 @@ export function StatCard({
   icon: Icon,
   footer,
   showChart = true,
+  chartValues,
   action,
 }: {
   label: string;
@@ -26,6 +36,7 @@ export function StatCard({
   icon?: LucideIcon;
   footer?: string;
   showChart?: boolean;
+  chartValues?: number[];
   action?: React.ReactNode;
 }) {
   return (
@@ -51,8 +62,12 @@ export function StatCard({
       {footer && <p className="mt-1 text-xs text-hope-muted">{footer}</p>}
 
       {showChart && (
-        <div className="mt-4 border-t border-slate-100 pt-3">
-          <MiniBarChart />
+        <div className="mt-4 h-16 border-t border-slate-100 pt-3">
+          <MiniLineChart
+            points={chartValues}
+            stroke={CHART_STROKE[color] ?? CHART_STROKE.primary}
+            compact
+          />
         </div>
       )}
     </div>

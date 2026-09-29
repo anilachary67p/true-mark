@@ -87,9 +87,27 @@ export function TenantDashboard() {
     : [];
 
   const primaryCards = [
-    { label: 'Total Verifications', value: total, color: 'primary' as const, icon: BadgeCheck, footer: formatRangeLabel(range) },
-    { label: 'Verified', value: verified, color: 'success' as const, icon: CheckCircle, footer: 'Authentic products confirmed' },
-    { label: 'Suspicious', value: suspicious, color: 'warning' as const, icon: AlertTriangle, footer: 'Needs review' },
+    {
+      label: 'Total Verifications',
+      value: total,
+      color: 'primary' as const,
+      icon: BadgeCheck,
+      footer: formatRangeLabel(range),
+    },
+    {
+      label: 'Verified',
+      value: verified,
+      color: 'success' as const,
+      icon: CheckCircle,
+      footer: 'Authentic products confirmed',
+    },
+    {
+      label: 'Suspicious',
+      value: suspicious,
+      color: 'warning' as const,
+      icon: AlertTriangle,
+      footer: 'Needs review',
+    },
   ];
 
   const secondaryCards = [
@@ -102,7 +120,9 @@ export function TenantDashboard() {
   const filteredRecent =
     tab === 'suspicious'
       ? recent.filter((item: Record<string, unknown>) =>
-          ['SUSPICIOUS', 'POSSIBLE_CLONE', 'INVALID_QR', 'UNKNOWN_QR'].includes(String(item.result)),
+          ['SUSPICIOUS', 'POSSIBLE_CLONE', 'INVALID_QR', 'UNKNOWN_QR'].includes(
+            String(item.result),
+          ),
         )
       : recent;
 
@@ -141,7 +161,7 @@ export function TenantDashboard() {
 
       <div className="mb-6 grid gap-5 xl:grid-cols-12">
         <PageCard className="xl:col-span-7" title="Verification Volume">
-          <div className="h-52">
+          <div className="h-52 rounded-xl bg-gradient-to-b from-slate-50/80 to-transparent px-2 pt-2">
             <MiniLineChart points={dailyVolume} />
           </div>
         </PageCard>
@@ -151,8 +171,18 @@ export function TenantDashboard() {
             <p className="mb-4 text-3xl font-bold text-hope-dark">{total.toLocaleString()}</p>
             <div className="space-y-4">
               <ProgressBar label="Verified" value={verified} max={total} color="bg-hope-purple" />
-              <ProgressBar label="Reverified" value={Number(data.reverified ?? 0)} max={total} color="bg-hope-teal" />
-              <ProgressBar label="Suspicious" value={suspicious} max={total} color="bg-hope-warning" />
+              <ProgressBar
+                label="Reverified"
+                value={Number(data.reverified ?? 0)}
+                max={total}
+                color="bg-hope-teal"
+              />
+              <ProgressBar
+                label="Suspicious"
+                value={suspicious}
+                max={total}
+                color="bg-hope-warning"
+              />
             </div>
           </PageCard>
           <div className="grid gap-5 sm:grid-cols-3 xl:grid-cols-1">
@@ -176,7 +206,9 @@ export function TenantDashboard() {
                   type="button"
                   onClick={() => setTab(t)}
                   className={`border-b-2 pb-3 text-sm font-semibold capitalize transition ${
-                    tab === t ? 'border-hope-primary text-hope-primary' : 'border-transparent text-hope-secondary'
+                    tab === t
+                      ? 'border-hope-primary text-hope-primary'
+                      : 'border-transparent text-hope-secondary'
                   }`}
                 >
                   {t}
@@ -186,7 +218,10 @@ export function TenantDashboard() {
           </div>
           <div className="divide-y divide-slate-50">
             {filteredRecent.slice(0, 8).map((item: Record<string, unknown>, i: number) => (
-              <div key={i} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-hope-primary/5">
+              <div
+                key={i}
+                className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-hope-primary/5"
+              >
                 <div>
                   <p className="text-sm font-semibold text-hope-primary">
                     {String(item.publicId ?? `scan_${i}`).slice(0, 24)}
@@ -196,7 +231,9 @@ export function TenantDashboard() {
                 <div className="text-right">
                   <Badge status={String(item.result ?? 'PENDING')} />
                   <p className="mt-1 text-[11px] text-hope-muted">
-                    {item.createdAt ? new Date(String(item.createdAt)).toLocaleString() : 'Recently'}
+                    {item.createdAt
+                      ? new Date(String(item.createdAt)).toLocaleString()
+                      : 'Recently'}
                   </p>
                 </div>
               </div>
