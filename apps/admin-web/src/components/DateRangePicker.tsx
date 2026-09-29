@@ -33,8 +33,10 @@ export function DateRangePicker({
     onChange(rangeForPreset(next));
   }
 
+  const rangeError = validateRange(custom);
+
   function applyCustom() {
-    if (custom.from && custom.to && custom.from <= custom.to) {
+    if (!rangeError && (custom.from !== value.from || custom.to !== value.to)) {
       onChange(custom);
     }
   }
@@ -75,7 +77,10 @@ export function DateRangePicker({
         <Calendar className="h-4 w-4 text-hope-muted" />
         <input
           type="date"
+          aria-label="From date"
+          aria-invalid={!!rangeError}
           value={custom.from}
+          max={custom.to || undefined}
           onChange={(e) => {
             setPreset('custom');
             setCustom((prev) => ({ ...prev, from: e.target.value }));
@@ -86,7 +91,10 @@ export function DateRangePicker({
         <span className="text-xs text-hope-muted">to</span>
         <input
           type="date"
+          aria-label="To date"
+          aria-invalid={!!rangeError}
           value={custom.to}
+          min={custom.from || undefined}
           onChange={(e) => {
             setPreset('custom');
             setCustom((prev) => ({ ...prev, to: e.target.value }));
@@ -95,8 +103,25 @@ export function DateRangePicker({
           className="border-0 bg-transparent text-xs font-medium text-hope-dark outline-none"
         />
       </div>
+      {rangeError && (
+        <p role="alert" className="w-full text-xs font-medium text-hope-danger">
+          {rangeError}
+        </p>
+      )}
     </div>
   );
+}
+
+const MAX_RANGE_DAYS = 366;
+
+function validateRange(range: DateRangeValue): string | null {
+  if (!range.from || !range.to) return 'Select both a start and an end date.';
+  const from = new Date(range.from).getTime();
+  const to = new Date(range.to).getTime();
+  if (Number.isNaN(from) || Number.isNaN(to)) return 'Enter valid dates.';
+  if (from > to) return 'Start date must be on or before the end date.';
+  if (to - from > MAX_RANGE_DAYS * 86_400_000) return `Date range cannot exceed ${MAX_RANGE_DAYS} days.`;
+  return null;
 }
 
 export function getDefaultDateRange(days = 30) {

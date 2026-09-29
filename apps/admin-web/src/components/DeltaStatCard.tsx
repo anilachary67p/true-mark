@@ -2,6 +2,7 @@
 
 import { TrendingDown, TrendingUp, Minus } from 'lucide-react';
 import { cn } from '@/components/ui/cn';
+import { formatDeltaPercent, toFiniteNumber } from '@/lib/format';
 
 export type MetricDelta = {
   current: number;
@@ -17,13 +18,17 @@ export function DeltaStatCard({
   accent = 'primary',
 }: {
   label: string;
-  metric: MetricDelta;
+  metric?: Partial<MetricDelta> | null;
   footer?: string;
   accent?: 'primary' | 'success' | 'warning' | 'error' | 'info';
 }) {
-  const positive = metric.delta > 0;
-  const negative = metric.delta < 0;
-  const neutral = metric.delta === 0;
+  const current = toFiniteNumber(metric?.current);
+  const previous = toFiniteNumber(metric?.previous);
+  const delta = metric?.delta === undefined ? current - previous : toFiniteNumber(metric.delta);
+  const deltaPercent = previous === 0 ? (current === 0 ? 0 : null) : metric?.deltaPercent;
+  const positive = delta > 0;
+  const negative = delta < 0;
+  const neutral = delta === 0;
 
   const accentBorder = {
     primary: 'border-l-hope-primary',
@@ -37,7 +42,7 @@ export function DeltaStatCard({
     <div className={cn('hope-card border-l-4 p-5', accentBorder)}>
       <p className="text-sm font-medium text-hope-secondary">{label}</p>
       <p className="mt-2 text-3xl font-bold tracking-tight text-hope-dark">
-        {metric.current.toLocaleString()}
+        {current.toLocaleString()}
       </p>
       <div className="mt-2 flex items-center gap-2">
         {neutral ? (
@@ -56,14 +61,14 @@ export function DeltaStatCard({
           )}
         >
           {positive ? '+' : ''}
-          {metric.delta.toLocaleString()} ({positive ? '+' : ''}
-          {metric.deltaPercent}%)
+          {delta.toLocaleString()}
+          {deltaPercent === null ? ' (new)' : ` (${formatDeltaPercent(deltaPercent)})`}
         </span>
         <span className="text-[10px] text-hope-muted">vs prior period</span>
       </div>
       {footer && <p className="mt-2 text-xs text-hope-muted">{footer}</p>}
       <p className="mt-1 text-[10px] text-hope-muted">
-        Previous: {metric.previous.toLocaleString()}
+        Previous: {previous.toLocaleString()}
       </p>
     </div>
   );

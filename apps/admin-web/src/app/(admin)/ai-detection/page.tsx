@@ -71,9 +71,10 @@ export default function AiDetectionPage() {
   const config = data?.config ?? null;
   const refs = data?.refs ?? [];
 
+  const loadedQuota = config?.quota;
   useEffect(() => {
-    if (config) setQuotaInput(String(config.quota));
-  }, [config?.quota]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (loadedQuota !== undefined) setQuotaInput(String(loadedQuota));
+  }, [loadedQuota]);
 
   const modeAction = useAsyncAction((mode: AiMode) => api.updateAiConfig(tenantId, { mode }));
   const quotaAction = useAsyncAction((quota: number) => api.updateAiConfig(tenantId, { quota }));

@@ -8,7 +8,10 @@ import { DateRangePicker, getDefaultDateRange } from '@/components/DateRangePick
 import { Button } from '@/components/ui/Button';
 import { MiniLineChart } from '@/components/ui/MiniLineChart';
 import { Badge } from '@/components/ui/Badge';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { Alert } from '@/components/ui/Alert';
+import { formatDateTime, formatNumber, percentOf, toFiniteNumber } from '@/lib/format';
+import { useAsyncData } from '@/lib/useAsync';
 import {
   BadgeCheck,
   CheckCircle,
@@ -33,7 +36,7 @@ function ProgressBar({
   max: number;
   color: string;
 }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  const pct = Math.round(percentOf(value, max));
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-xs">
@@ -50,25 +53,16 @@ function ProgressBar({
 export function TenantDashboard() {
   const tenantId = useTenantId();
   const [range, setRange] = useState<DateRangeValue>(() => getDefaultDateRange(30));
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'verifications' | 'suspicious'>('verifications');
 
-  const load = useCallback(async (tid: string, nextRange: DateRangeValue) => {
-    setLoading(true);
-    try {
-      setData(await api.getDashboard(tid, nextRange));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const dashboard = useAsyncData(
+    async () => ((await api.getDashboard(tenantId, range)) ?? {}) as Record<string, unknown>,
+    [tenantId, range.from, range.to],
+    { enabled: !!tenantId },
+  );
+  const data = dashboard.data;
 
-  useEffect(() => {
-    if (!tenantId) return;
-    load(tenantId, range);
-  }, [tenantId, range, load]);
-
-  if (!tenantId || (loading && !data)) {
+  if (!tenantId || (dashboard.loading && !data)) {
     return (
       <>
         <PageHeader title="Quick Insights" subtitle="Your organization verification overview" />
@@ -77,13 +71,27 @@ export function TenantDashboard() {
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <>
+        <PageHeader title="Quick Insights" subtitle="Your organization verification overview" />
+        <Alert variant="error">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{dashboard.error || 'Dashboard data is unavailable.'}</span>
+            <Button size="sm" variant="outline" onClick={dashboard.reload}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      </>
+    );
+  }
 
-  const total = Number(data.totalVerifications ?? 0);
-  const verified = Number(data.verified ?? 0);
-  const suspicious = Number(data.suspicious ?? 0) + Number(data.possibleClone ?? 0);
+  const total = toFiniteNumber(data.totalVerifications);
+  const verified = toFiniteNumber(data.verified);
+  const suspicious = toFiniteNumber(data.suspicious) + toFiniteNumber(data.possibleClone);
   const dailyVolume = Array.isArray(data.dailyVolume)
-    ? (data.dailyVolume as Array<{ date: string; count: number }>).map((d) => d.count)
+    ? (data.dailyVolume as Array<{ count?: unknown }>).map((d) => toFiniteNumber(d?.count))
     : [];
 
   const primaryCards = [
@@ -144,6 +152,17 @@ export function TenantDashboard() {
         }
       />
 
+      {dashboard.error && (
+        <Alert variant="warning">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>Showing the last loaded data. {dashboard.error}</span>
+            <Button size="sm" variant="outline" onClick={dashboard.reload}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       <div className="mb-6 grid gap-5 lg:grid-cols-3">
         {primaryCards.map((c) => (
           <PageCard key={c.label}>
@@ -173,7 +192,7 @@ export function TenantDashboard() {
               <ProgressBar label="Verified" value={verified} max={total} color="bg-hope-purple" />
               <ProgressBar
                 label="Reverified"
-                value={Number(data.reverified ?? 0)}
+                value={toFiniteNumber(data.reverified)}
                 max={total}
                 color="bg-hope-teal"
               />
@@ -189,7 +208,7 @@ export function TenantDashboard() {
             {secondaryCards.map((c) => (
               <PageCard key={c.label}>
                 <p className="text-xs text-hope-secondary">{c.label}</p>
-                <p className="text-xl font-bold text-hope-dark">{String(c.value ?? 0)}</p>
+                <p className="text-xl font-bold text-hope-dark">{formatNumber(c.value)}</p>
               </PageCard>
             ))}
           </div>
@@ -231,9 +250,7 @@ export function TenantDashboard() {
                 <div className="text-right">
                   <Badge status={String(item.result ?? 'PENDING')} />
                   <p className="mt-1 text-[11px] text-hope-muted">
-                    {item.createdAt
-                      ? new Date(String(item.createdAt)).toLocaleString()
-                      : 'Recently'}
+                    {item.createdAt ? formatDateTime(item.createdAt) : 'Recently'}
                   </p>
                 </div>
               </div>

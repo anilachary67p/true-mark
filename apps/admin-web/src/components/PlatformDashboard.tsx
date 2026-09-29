@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Building2, ChevronRight } from 'lucide-react';
 import { PageCard } from '@/components/PageCard';
@@ -14,8 +14,11 @@ import { Button } from '@/components/ui/Button';
 import { StatusChip } from '@/components/StatusChip';
 import { TD } from '@/components/ui/Table';
 import { VirtualizedTable } from '@/components/ui/VirtualizedTable';
+import { Alert } from '@/components/ui/Alert';
 import { api } from '@/lib/api';
 import { DateRangeValue, formatRangeLabel } from '@/lib/dateRange';
+import { formatDate, percentOf, toFiniteNumber } from '@/lib/format';
+import { useAsyncData } from '@/lib/useAsync';
 
 type PlatformDashboardData = {
   dateRange: { from: string; to: string };
@@ -46,43 +49,72 @@ type TenantDrillDown = {
   catalog: { categories: number; productTypes: number; variants: number; tags: number };
 };
 
+function list<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function counts(series: unknown): number[] {
+  return list<{ count?: unknown }>(series).map((d) => toFiniteNumber(d?.count));
+}
+
+function normalizeCatalog(value: unknown): TenantDrillDown['catalog'] {
+  const c = (value ?? {}) as Partial<TenantDrillDown['catalog']>;
+  return {
+    categories: toFiniteNumber(c.categories),
+    productTypes: toFiniteNumber(c.productTypes),
+    variants: toFiniteNumber(c.variants),
+    tags: toFiniteNumber(c.tags),
+  };
+}
+
+function normalizeDashboard(raw: Partial<PlatformDashboardData> | null | undefined): PlatformDashboardData {
+  return {
+    dateRange: raw?.dateRange ?? { from: '', to: '' },
+    previousDateRange: raw?.previousDateRange ?? { from: '', to: '' },
+    totals: raw?.totals ?? {},
+    dailyVolume: list(raw?.dailyVolume),
+    previousDailyVolume: list(raw?.previousDailyVolume),
+    resultDistribution: list<PlatformDashboardData['resultDistribution'][number]>(raw?.resultDistribution).map((r) => ({
+      result: String(r?.result ?? 'UNKNOWN'),
+      count: toFiniteNumber(r?.count),
+      previous: toFiniteNumber(r?.previous),
+    })),
+    tenantsByDeployment: list<PlatformDashboardData['tenantsByDeployment'][number]>(raw?.tenantsByDeployment).map((d) => ({
+      deploymentType: String(d?.deploymentType ?? 'UNKNOWN'),
+      count: toFiniteNumber(d?.count),
+    })),
+    tenantBreakdown: list<PlatformDashboardData['tenantBreakdown'][number]>(raw?.tenantBreakdown).map((t) => ({
+      tenantId: String(t?.tenantId ?? ''),
+      tenantName: String(t?.tenantName ?? 'Unnamed organization'),
+      status: String(t?.status ?? 'UNKNOWN'),
+      deploymentType: String(t?.deploymentType ?? '—'),
+      verifications: toFiniteNumber(t?.verifications),
+      verified: toFiniteNumber(t?.verified),
+      suspicious: toFiniteNumber(t?.suspicious),
+      verificationRate: toFiniteNumber(t?.verificationRate),
+      catalog: normalizeCatalog(t?.catalog),
+    })),
+  };
+}
+
 export function PlatformDashboard() {
   const [range, setRange] = useState<DateRangeValue>(() => getDefaultDateRange(30));
-  const [data, setData] = useState<PlatformDashboardData | null>(null);
-  const [drillDown, setDrillDown] = useState<TenantDrillDown | null>(null);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [drillLoading, setDrillLoading] = useState(false);
 
-  const load = useCallback(async (nextRange: DateRangeValue) => {
-    setLoading(true);
-    try {
-      setData(await api.getPlatformDashboard(nextRange));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const dashboard = useAsyncData(
+    async () => normalizeDashboard(await api.getPlatformDashboard(range)),
+    [range.from, range.to],
+  );
+  const drill = useAsyncData(
+    () => api.getPlatformTenantDashboard(selectedTenantId!, range) as Promise<TenantDrillDown>,
+    [selectedTenantId, range.from, range.to],
+    { enabled: !!selectedTenantId },
+  );
+  const data = dashboard.data;
+  const drillDown = selectedTenantId && drill.data?.tenant ? drill.data : null;
+  const drillLoading = drill.loading;
 
-  const loadTenant = useCallback(async (tenantId: string, nextRange: DateRangeValue) => {
-    setDrillLoading(true);
-    try {
-      setDrillDown(await api.getPlatformTenantDashboard(tenantId, nextRange));
-      setSelectedTenantId(tenantId);
-    } finally {
-      setDrillLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load(range);
-  }, [range, load]);
-
-  useEffect(() => {
-    if (!selectedTenantId) return;
-    loadTenant(selectedTenantId, range);
-  }, [selectedTenantId, range, loadTenant]);
-
-  if (loading && !data) {
+  if (dashboard.loading && !data) {
     return (
       <>
         <PageHeader title="Platform Dashboard" subtitle="Cross-tenant statistics and insights" />
@@ -91,13 +123,29 @@ export function PlatformDashboard() {
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <>
+        <PageHeader title="Platform Dashboard" subtitle="Cross-tenant statistics and insights" />
+        <Alert variant="error">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{dashboard.error || 'Dashboard data is unavailable.'}</span>
+            <Button size="sm" variant="outline" onClick={dashboard.reload}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      </>
+    );
+  }
 
-  const volume = data.dailyVolume.map((d) => d.count);
-  const prevVolume = data.previousDailyVolume.map((d) => d.count);
+  const volume = counts(data.dailyVolume);
+  const prevVolume = counts(data.previousDailyVolume);
   const topTenants = data.tenantBreakdown.slice(0, 8);
   const tenantBars = topTenants.map((t) => t.verifications);
-  const tenantLabels = topTenants.map((t) => t.tenantName.split(' ')[0]);
+  const tenantLabels = topTenants.map((t) => t.tenantName.split(' ')[0] || t.tenantName);
+  const tenantTotal = Math.max(toFiniteNumber(data.totals.tenants?.current), 1);
+  const distribution = [...data.resultDistribution].sort((a, b) => b.count - a.count).slice(0, 8);
 
   return (
     <>
@@ -117,10 +165,20 @@ export function PlatformDashboard() {
         }
       />
 
+      {dashboard.error && (
+        <Alert variant="warning" className="mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>Showing the last loaded data. {dashboard.error}</span>
+            <Button size="sm" variant="outline" onClick={dashboard.reload}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       <p className="mb-4 text-xs text-hope-muted">
-        Comparing {formatRangeLabel(range)} vs previous period (
-        {new Date(data.previousDateRange.from).toLocaleDateString()} –{' '}
-        {new Date(data.previousDateRange.to).toLocaleDateString()})
+        Comparing {formatRangeLabel(range)} vs previous period ({formatDate(data.previousDateRange.from)} –{' '}
+        {formatDate(data.previousDateRange.to)})
       </p>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -164,6 +222,9 @@ export function PlatformDashboard() {
 
         <PageCard className="xl:col-span-4" title="By deployment model">
           <div className="space-y-3">
+            {data.tenantsByDeployment.length === 0 && (
+              <p className="text-xs text-hope-muted">No organizations yet.</p>
+            )}
             {data.tenantsByDeployment.map((d) => (
               <div key={d.deploymentType}>
                 <div className="mb-1 flex justify-between text-xs">
@@ -174,7 +235,7 @@ export function PlatformDashboard() {
                   <div
                     className="h-full rounded-full bg-hope-primary"
                     style={{
-                      width: `${Math.round((d.count / Math.max(data.totals.tenants.current, 1)) * 100)}%`,
+                      width: `${Math.round(percentOf(d.count, tenantTotal))}%`,
                     }}
                   />
                 </div>
@@ -199,10 +260,8 @@ export function PlatformDashboard() {
 
         <PageCard title="Result distribution">
           <div className="space-y-2">
-            {data.resultDistribution
-              .sort((a, b) => b.count - a.count)
-              .slice(0, 8)
-              .map((r) => {
+            {distribution.length === 0 && <p className="text-xs text-hope-muted">No verifications in this period.</p>}
+            {distribution.map((r) => {
                 const delta = r.count - r.previous;
                 const pct =
                   r.previous > 0 ? Math.round((delta / r.previous) * 100) : r.count > 0 ? 100 : 0;
@@ -271,36 +330,47 @@ export function PlatformDashboard() {
         />
       </PageCard>
 
-      {drillLoading && (
+      {selectedTenantId && drillLoading && (
         <div className="mt-6">
           <StatCardsSkeleton count={3} />
         </div>
       )}
 
-      {drillDown && !drillLoading && (
+      {selectedTenantId && !drillLoading && drill.error && (
+        <Alert variant="error" className="mt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{drill.error}</span>
+            <Button size="sm" variant="outline" onClick={drill.reload}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
+
+      {drillDown && !drillLoading && !drill.error && (
         <div className="mt-6 space-y-5">
           <PageHeader
             title={drillDown.tenant.name}
             subtitle={`Tenant drill-down · ${drillDown.tenant.deploymentType}`}
           />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <DeltaStatCard label="Verifications" metric={drillDown.totals.verifications} />
-            <DeltaStatCard label="Verified" metric={drillDown.totals.verified} accent="success" />
+            <DeltaStatCard label="Verifications" metric={drillDown.totals?.verifications} />
+            <DeltaStatCard label="Verified" metric={drillDown.totals?.verified} accent="success" />
             <DeltaStatCard
               label="Suspicious"
-              metric={drillDown.totals.suspicious}
+              metric={drillDown.totals?.suspicious}
               accent="warning"
             />
             <DeltaStatCard
               label="AI jobs"
-              metric={drillDown.totals.aiJobsCompleted}
+              metric={drillDown.totals?.aiJobsCompleted}
               accent="info"
             />
             <PageCard>
               <p className="text-sm text-hope-secondary">Catalog</p>
               <p className="mt-2 text-lg font-bold text-hope-dark">
-                {drillDown.catalog.categories} / {drillDown.catalog.productTypes} /{' '}
-                {drillDown.catalog.variants}
+                {normalizeCatalog(drillDown.catalog).categories} / {normalizeCatalog(drillDown.catalog).productTypes} /{' '}
+                {normalizeCatalog(drillDown.catalog).variants}
               </p>
               <p className="text-[10px] text-hope-muted">Categories · Types · Variants</p>
             </PageCard>
@@ -308,8 +378,8 @@ export function PlatformDashboard() {
           <PageCard title={`${drillDown.tenant.name} — verification trend`}>
             <div className="h-52 rounded-xl bg-gradient-to-b from-slate-50/80 to-transparent px-2 pt-2">
               <MiniLineChart
-                points={drillDown.dailyVolume.map((d) => d.count)}
-                points2={drillDown.previousDailyVolume.map((d) => d.count)}
+                points={counts(drillDown.dailyVolume)}
+                points2={counts(drillDown.previousDailyVolume)}
               />
             </div>
           </PageCard>
