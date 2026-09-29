@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AiJobStatus, AiMode, ImageViewAngle } from '@truemark/db';
 import { PrismaService } from '../../providers/prisma.service';
 import { AiProvider, ObjectStorageProvider } from '../../providers/interfaces';
@@ -6,6 +12,32 @@ import { AI_PROVIDER, STORAGE_PROVIDER } from '../../providers/providers.module'
 import { AiConfigService } from '../ai-config/ai-config.service';
 import { VisualAiService } from './visual-ai.service';
 import { HybridBoundaryService } from '../hybrid/hybrid-boundary.service';
+
+/** States in which a consumer may still upload images or start processing. */
+const OPEN_JOB_STATUSES: AiJobStatus[] = [AiJobStatus.PENDING, AiJobStatus.IMAGE_NOT_CLEAR];
+
+type ImageFormat = { contentType: string; extension: string };
+
+/** Detects the real image type from magic bytes — never trust the client-declared MIME type. */
+export function detectImageFormat(buffer: Buffer): ImageFormat | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { contentType: 'image/jpeg', extension: 'jpg' };
+  }
+  if (
+    buffer.length >= 8 &&
+    buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
+    return { contentType: 'image/png', extension: 'png' };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return { contentType: 'image/webp', extension: 'webp' };
+  }
+  return null;
+}
 
 @Injectable()
 export class AiOrchestrationService {
@@ -76,7 +108,15 @@ export class AiOrchestrationService {
   }
 
   async uploadImage(jobId: string, viewAngle: ImageViewAngle, imageBuffer: Buffer) {
+    const format = detectImageFormat(imageBuffer);
+    if (!format) {
+      throw new BadRequestException('Unsupported image type. Upload a JPEG, PNG or WebP photo.');
+    }
+
     const job = await this.requireJob(jobId);
+    if (!OPEN_JOB_STATUSES.includes(job.status)) {
+      throw new ConflictException(`AI job is ${job.status}; images can no longer be uploaded`);
+    }
     const tenantId = job.verificationEvent.tenantId;
     const boundary = await this.hybridBoundary.canTransferConsumerImages(tenantId);
     if (!boundary.allowed) {
@@ -102,14 +142,23 @@ export class AiOrchestrationService {
         };
       }
 
-      const ref = await this.storage.upload(`${tenantId}/${jobId}/${viewAngle}.jpg`, imageBuffer, {
-        contentType: 'image/jpeg',
-        tenantId,
-      });
+      const ref = await this.storage.upload(
+        `${tenantId}/${jobId}/${viewAngle}.${format.extension}`,
+        imageBuffer,
+        { contentType: format.contentType, tenantId },
+      );
 
-      await this.prisma.client.aiImage.create({
-        data: { aiJobId: jobId, viewAngle, objectKey: ref.key, quality: quality as object },
-      });
+      // One image per angle: a retake replaces the previous upload.
+      await this.prisma.client.$transaction([
+        this.prisma.client.aiImage.deleteMany({ where: { aiJobId: jobId, viewAngle } }),
+        this.prisma.client.aiImage.create({
+          data: { aiJobId: jobId, viewAngle, objectKey: ref.key, quality: quality as object },
+        }),
+        this.prisma.client.aiJob.updateMany({
+          where: { id: jobId, status: AiJobStatus.IMAGE_NOT_CLEAR },
+          data: { status: AiJobStatus.PENDING, errorMessage: null },
+        }),
+      ]);
 
       await this.hybridBoundary.recordCrossBoundaryTransfer({
         tenantId,
@@ -130,6 +179,9 @@ export class AiOrchestrationService {
 
   async processJob(jobId: string) {
     const job = await this.requireJob(jobId);
+    if (!OPEN_JOB_STATUSES.includes(job.status)) {
+      throw new ConflictException(`AI job is already ${job.status}`);
+    }
     const tenantId = job.verificationEvent.tenantId;
     const aiConfig = await this.aiConfig.get(tenantId);
     const requiredViews = this.visualAi.getRequiredViews(aiConfig?.config as Record<string, unknown>);
@@ -144,10 +196,14 @@ export class AiOrchestrationService {
       };
     }
 
-    await this.prisma.client.aiJob.update({
-      where: { id: jobId },
+    // Atomic claim: concurrent /process calls cannot run (and bill) the same job twice.
+    const claimed = await this.prisma.client.aiJob.updateMany({
+      where: { id: jobId, status: { in: OPEN_JOB_STATUSES } },
       data: { status: AiJobStatus.PROCESSING },
     });
+    if (claimed.count !== 1) {
+      throw new ConflictException('AI job is already being processed');
+    }
 
     try {
       const imageBuffers = await Promise.all(
@@ -235,18 +291,39 @@ export class AiOrchestrationService {
         where: { id: jobId },
         data: {
           status: AiJobStatus.AI_UNAVAILABLE,
-          errorMessage: String(error),
+          errorMessage: (error instanceof Error ? error.message : String(error)).slice(0, 500),
         },
       });
       return { status: AiJobStatus.AI_UNAVAILABLE, message: unavailable ? 'AI validation unavailable.' : undefined };
     }
   }
 
+  /** Public status view — never expose expected serial/batch values, storage keys or raw errors. */
   async getStatus(jobId: string) {
-    const job = await this.requireJob(jobId);
-    return this.prisma.client.aiJob.findFirst({
-      where: { id: job.id },
+    const job = await this.prisma.client.aiJob.findFirst({
+      where: { id: jobId },
       include: { ocrResults: true, fieldMismatches: true, visualResults: true, images: true },
     });
+    if (!job) throw new NotFoundException('AI job not found');
+    return {
+      id: job.id,
+      status: job.status,
+      confidence: job.confidence,
+      completedAt: job.completedAt,
+      createdAt: job.createdAt,
+      uploadedViews: job.images.map((i) => i.viewAngle),
+      ocrChecks: job.ocrResults.map((r) => ({
+        field: r.fieldName,
+        isMatch: r.isMatch,
+        confidence: r.confidence,
+      })),
+      mismatchedFields: job.fieldMismatches.map((m) => m.fieldName),
+      visualResults: job.visualResults.map((v) => ({
+        type: v.checkType,
+        passed: v.passed,
+        confidence: v.confidence,
+      })),
+      disclaimer: 'AI confidence is probabilistic evidence, not proof of authenticity.',
+    };
   }
 }

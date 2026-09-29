@@ -1,5 +1,20 @@
 import { z } from 'zod';
 
+/** `z.coerce.boolean()` treats the string "false" as true; parse env flags explicitly. */
+const envBoolean = (defaultValue: boolean) =>
+  z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined || value === '') return defaultValue;
+      if (typeof value === 'boolean') return value;
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Expected a boolean, got "${value}"` });
+      return z.NEVER;
+    });
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.string().min(1),
@@ -21,7 +36,7 @@ export const envSchema = z.object({
   MINIO_ACCESS_KEY: z.string().optional(),
   MINIO_SECRET_KEY: z.string().optional(),
   MINIO_BUCKET: z.string().default('truemark'),
-  MINIO_USE_SSL: z.coerce.boolean().default(false),
+  MINIO_USE_SSL: envBoolean(false),
   AI_PROVIDER: z.enum(['mock', 'openai', 'azure']).default('mock'),
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
@@ -36,7 +51,7 @@ export const envSchema = z.object({
   LICENSE_SIGNING_PRIVATE_KEY: z.string().optional(),
   LICENSE_BACKUP_KEY: z.string().length(64).optional(),
   LICENSE_GRACE_DAYS: z.coerce.number().default(15),
-  SKIP_LICENSE_CHECK: z.coerce.boolean().default(false),
+  SKIP_LICENSE_CHECK: envBoolean(false),
   PRODUCT_OWNER_EMAIL: z.string().email().default('licensing@truemark.local'),
   PRODUCT_OWNER_PHONE: z.string().optional(),
   RATE_LIMIT_VERIFY_PER_MIN: z.coerce.number().default(60),
@@ -53,6 +68,9 @@ export function loadEnv(env: NodeJS.ProcessEnv = process.env): EnvConfig {
   }
   if (parsed.data.AUTH_MODE === 'dev' && !parsed.data.JWT_SECRET) {
     throw new Error('JWT_SECRET is required when AUTH_MODE=dev');
+  }
+  if (parsed.data.NODE_ENV === 'production' && parsed.data.SKIP_LICENSE_CHECK) {
+    throw new Error('SKIP_LICENSE_CHECK cannot be enabled when NODE_ENV=production');
   }
   return parsed.data;
 }

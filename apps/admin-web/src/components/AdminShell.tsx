@@ -45,7 +45,11 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navGroups = getNavGroups(roles);
   const subtitle = isPlatformAdminRole(roles) ? 'Platform' : 'Tenant';
 
+  const [signingOut, setSigningOut] = useState(false);
+
   async function logout() {
+    if (signingOut) return;
+    setSigningOut(true);
     const rt = getRefreshToken();
     if (rt) {
       try {
@@ -56,7 +60,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     }
     clearAuth();
     clearSessionCache();
-    router.push('/login');
+    router.replace('/login');
   }
 
   return (
@@ -104,9 +108,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <p className="text-[10px] font-medium text-hope-primary">{roleLabel}</p>
           </div>
         )}
-        <Button variant="outline" className="w-full justify-start gap-2" onClick={logout}>
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-2"
+          onClick={logout}
+          disabled={signingOut}
+        >
           <LogOut className="h-4 w-4" />
-          Sign Out
+          {signingOut ? 'Signing out…' : 'Sign Out'}
         </Button>
       </div>
     </div>
@@ -115,13 +124,22 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { loading, roles } = useSession();
+  const { loading, roles, error: sessionError, retry } = useSession();
   const [mobileOpen, setMobileOpen] = useState(false);
   const subtitle = isPlatformAdminRole(roles) ? 'Platform' : 'Tenant';
 
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileOpen]);
 
   return (
     <div className="min-h-screen bg-hope-body">
@@ -135,11 +153,21 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
+        <div
+          className="fixed inset-0 z-50 md:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
+          <div
+            className="absolute inset-0 bg-black/40"
+            aria-hidden="true"
+            onClick={() => setMobileOpen(false)}
+          />
           <aside className="absolute left-0 top-0 h-full w-[270px] bg-white shadow-xl">
             <button
               type="button"
+              aria-label="Close menu"
               className="absolute right-3 top-3 rounded-lg p-1 hover:bg-slate-100"
               onClick={() => setMobileOpen(false)}
             >
@@ -170,6 +198,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   <div className="h-40 rounded-2xl bg-slate-200" />
                   <div className="h-40 rounded-2xl bg-slate-200" />
                 </div>
+              </div>
+            ) : sessionError ? (
+              <div className="mx-auto max-w-lg rounded-2xl border border-red-100 bg-white p-8 text-center shadow-sm">
+                <p className="text-lg font-semibold text-hope-dark">We couldn&apos;t load your workspace</p>
+                <p className="mt-2 text-sm text-hope-secondary">{sessionError}</p>
+                <Button className="mt-5" onClick={retry}>
+                  Try again
+                </Button>
               </div>
             ) : (
               <div className="mx-auto max-w-[1400px]">{children}</div>

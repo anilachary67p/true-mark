@@ -139,10 +139,8 @@ export class TenantService {
     const before = await this.prisma.client.tenant.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Tenant not found');
 
-    if (data.status && data.status !== before.status) {
-      if (!userRoles.includes(UserRole.PLATFORM_ADMIN) && data.status !== TenantStatus.ACTIVE) {
-        throw new ForbiddenException('Only platform administrators can change tenant status');
-      }
+    if (data.status && data.status !== before.status && !userRoles.includes(UserRole.PLATFORM_ADMIN)) {
+      throw new ForbiddenException('Only platform administrators can change tenant status');
     }
 
     if (data.deploymentType && !userRoles.includes(UserRole.PLATFORM_ADMIN)) {

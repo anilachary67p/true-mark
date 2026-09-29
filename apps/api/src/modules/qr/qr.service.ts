@@ -17,6 +17,33 @@ import { assertLifecycleTransition } from '../product/product-lifecycle.util';
 import { ObjectStorageProvider } from '../../providers/interfaces';
 import { STORAGE_PROVIDER } from '../../providers/providers.module';
 
+const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const ECC_LEVELS = ['L', 'M', 'Q', 'H'] as const;
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(Math.max(Math.round(value), min), max)
+    : fallback;
+}
+
+/** Defensive normalization: stored configs may predate validation, so never trust them at render. */
+export function normalizeQrRenderOptions(config: Record<string, unknown>) {
+  const pickColor = (value: unknown, fallback: string) =>
+    typeof value === 'string' && HEX_COLOR.test(value) ? value : fallback;
+  const ecc = ECC_LEVELS.includes(config.errorCorrectionLevel as (typeof ECC_LEVELS)[number])
+    ? (config.errorCorrectionLevel as (typeof ECC_LEVELS)[number])
+    : 'M';
+  return {
+    width: clampInt(config.width, 64, 2048, 300),
+    margin: clampInt(config.quietZone, 0, 16, 4),
+    color: {
+      dark: pickColor(config.foregroundColor, '#000000'),
+      light: pickColor(config.backgroundColor, '#FFFFFF'),
+    },
+    errorCorrectionLevel: ecc,
+  };
+}
+
 @Injectable()
 export class QrRenderService {
   constructor(
@@ -24,14 +51,7 @@ export class QrRenderService {
   ) {}
 
   async render(data: string, config: Record<string, unknown>): Promise<Buffer> {
-    const width = (config.width as number) ?? 300;
-    const color = {
-      dark: (config.foregroundColor as string) ?? '#000000',
-      light: (config.backgroundColor as string) ?? '#FFFFFF',
-    };
-    const margin = (config.quietZone as number) ?? 4;
-    const errorCorrectionLevel = ((config.errorCorrectionLevel as string) ?? 'M') as
-      'L' | 'M' | 'Q' | 'H';
+    const { width, color, margin, errorCorrectionLevel } = normalizeQrRenderOptions(config);
 
     const png = await QRCode.toBuffer(data, {
       width,
@@ -48,7 +68,10 @@ export class QrRenderService {
 
     try {
       const logoBuffer = await this.storage.download(logoKey);
-      const ratio = typeof config.logoSizeRatio === 'number' ? config.logoSizeRatio : 0.2;
+      const ratio =
+        typeof config.logoSizeRatio === 'number' && Number.isFinite(config.logoSizeRatio)
+          ? Math.min(Math.max(config.logoSizeRatio, 0.05), 0.3)
+          : 0.2;
       const logoSize = Math.max(24, Math.floor(width * ratio));
       const logo = await sharp(logoBuffer)
         .resize(logoSize, logoSize, { fit: 'inside' })
@@ -64,17 +87,7 @@ export class QrRenderService {
   }
 
   async renderSvg(data: string, config: Record<string, unknown>): Promise<string> {
-    return QRCode.toString(data, {
-      type: 'svg',
-      width: (config.width as number) ?? 300,
-      color: {
-        dark: (config.foregroundColor as string) ?? '#000000',
-        light: (config.backgroundColor as string) ?? '#FFFFFF',
-      },
-      margin: (config.quietZone as number) ?? 4,
-      errorCorrectionLevel: ((config.errorCorrectionLevel as string) ?? 'M') as
-        'L' | 'M' | 'Q' | 'H',
-    });
+    return QRCode.toString(data, { type: 'svg', ...normalizeQrRenderOptions(config) });
   }
 }
 

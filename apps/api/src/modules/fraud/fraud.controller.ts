@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@truemark/db';
-import { IsInt, IsNumber, IsOptional } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
 import { FraudService } from './fraud.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { TenantId } from '../../common/decorators/current-user.decorator';
@@ -10,18 +10,26 @@ import { TenantGuard } from '../../common/guards/tenant.guard';
 class UpdateFraudConfigDto {
   @IsOptional()
   @IsInt()
+  @Min(1)
+  @Max(100_000)
   highScanCount?: number;
 
   @IsOptional()
   @IsInt()
+  @Min(1)
+  @Max(43_200)
   highScanWindowMinutes?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(5_000)
   maxTravelSpeedKmh?: number;
 
   @IsOptional()
   @IsInt()
+  @Min(1)
+  @Max(43_200)
   impossibleTravelMinutes?: number;
 }
 

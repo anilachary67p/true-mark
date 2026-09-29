@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { ExecutionContext, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -24,13 +24,23 @@ import { JobsModule } from './jobs/jobs.module';
 import { ProvidersModule } from './providers/providers.module';
 import { LicenseModule } from './modules/license/license.module';
 
+/**
+ * Named throttlers apply to every route by default in @nestjs/throttler v6.
+ * `verify` and `ai` must only apply where a route opts in via @Throttle({ verify | ai }).
+ */
+function skipUnlessThrottlerDeclared(name: string) {
+  const key = `THROTTLER:LIMIT${name}`;
+  return (context: ExecutionContext) =>
+    !Reflect.getMetadata(key, context.getHandler()) && !Reflect.getMetadata(key, context.getClass());
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [() => loadEnv()] }),
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60000, limit: 100 },
-      { name: 'verify', ttl: 60000, limit: 60 },
-      { name: 'ai', ttl: 60000, limit: 10 },
+      { name: 'verify', ttl: 60000, limit: 60, skipIf: skipUnlessThrottlerDeclared('verify') },
+      { name: 'ai', ttl: 60000, limit: 10, skipIf: skipUnlessThrottlerDeclared('ai') },
     ]),
     BullModule.forRoot({
       connection: { url: process.env.REDIS_URL ?? 'redis://localhost:6379' },

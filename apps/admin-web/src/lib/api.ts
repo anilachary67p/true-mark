@@ -7,35 +7,127 @@ export type { DateRangeValue };
 let token: string | null = null;
 let refreshToken: string | null = null;
 
+const TOKEN_KEY = 'truemark_token';
+const REFRESH_TOKEN_KEY = 'truemark_refresh_token';
+const REQUEST_TIMEOUT_MS = 30_000;
+const UNSAFE_PATH = /(^|\/)\.\.?(\/|$|\?)|%2e|%2f|%5c|\\/i;
+
+/** Error thrown for any failed API call; `status` is 0 for network failures and timeouts. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly correlationId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export function isApiError(error: unknown, status?: number): error is ApiError {
+  return error instanceof ApiError && (status === undefined || error.status === status);
+}
+
+/** Human-readable message for any thrown value, suitable for user-facing alerts. */
+export function errorMessage(error: unknown, fallback = 'Something went wrong. Please try again.') {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
+function storageGet(key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, value: string | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable (private mode, quota); in-memory tokens still work for this tab.
+  }
+}
+
 export function setToken(t: string) {
   token = t;
-  if (typeof window !== 'undefined') localStorage.setItem('truemark_token', t);
+  storageSet(TOKEN_KEY, t);
 }
 
 export function setRefreshToken(t: string) {
   refreshToken = t;
-  if (typeof window !== 'undefined') localStorage.setItem('truemark_refresh_token', t);
+  storageSet(REFRESH_TOKEN_KEY, t);
 }
 
 export function getRefreshToken(): string | null {
   if (refreshToken) return refreshToken;
-  if (typeof window !== 'undefined') refreshToken = localStorage.getItem('truemark_refresh_token');
+  refreshToken = storageGet(REFRESH_TOKEN_KEY);
   return refreshToken;
 }
 
 export function clearAuth() {
   token = null;
   refreshToken = null;
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('truemark_token');
-    localStorage.removeItem('truemark_refresh_token');
-  }
+  storageSet(TOKEN_KEY, null);
+  storageSet(REFRESH_TOKEN_KEY, null);
 }
 
 export function getToken(): string | null {
   if (token) return token;
-  if (typeof window !== 'undefined') token = localStorage.getItem('truemark_token');
+  token = storageGet(TOKEN_KEY);
   return token;
+}
+
+/**
+ * Session is unrecoverable: drop credentials and hard-navigate to login. A full navigation
+ * (not router.push) also discards every in-memory cache so the next user cannot inherit it.
+ */
+function handleUnauthorized() {
+  clearAuth();
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname.startsWith('/login')) return;
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.replace(`/login?reason=expired&next=${next}`);
+}
+
+function withTimeout(signal: AbortSignal | null | undefined): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  timedOut: () => boolean;
+} {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    timedOut: () => didTimeout,
+    cleanup: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+function messageForStatus(status: number): string {
+  if (status === 403) return 'You do not have permission to perform this action.';
+  if (status === 404) return 'The requested resource was not found.';
+  if (status === 409) return 'This conflicts with the current state. Refresh and try again.';
+  if (status === 429) return 'Too many requests. Please wait a moment and try again.';
+  if (status >= 500) return 'The server encountered an error. Please try again shortly.';
+  return `Request failed (HTTP ${status})`;
 }
 
 async function request<T>(
@@ -43,6 +135,10 @@ async function request<T>(
   options: RequestInit = {},
   allowRefresh = true,
 ): Promise<T> {
+  if (UNSAFE_PATH.test(path.split('?')[0]!)) {
+    throw new ApiError('Invalid request path', 400);
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -50,28 +146,57 @@ async function request<T>(
   const t = getToken();
   if (t) headers.Authorization = `Bearer ${t}`;
 
-  const res = await fetch(`${API_URL}/api/v1${path}`, { ...options, headers });
-  if (
-    res.status === 401 &&
-    allowRefresh &&
-    path !== '/admin/auth/login' &&
-    path !== '/admin/auth/refresh'
-  ) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) return request<T>(path, options, false);
-    clearAuth();
+  const timeout = withTimeout(options.signal);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/v1${path}`, { ...options, headers, signal: timeout.signal });
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    throw new ApiError(
+      timeout.timedOut()
+        ? 'The server took too long to respond. Please try again.'
+        : 'Unable to reach the server. Check your connection and try again.',
+      0,
+    );
+  } finally {
+    timeout.cleanup();
   }
+
+  const isAuthEndpoint = path === '/admin/auth/login' || path === '/admin/auth/refresh';
+  if (res.status === 401 && !isAuthEndpoint) {
+    if (allowRefresh && (await refreshAccessToken())) {
+      return request<T>(path, options, false);
+    }
+    handleUnauthorized();
+    throw new ApiError('Your session has expired. Please sign in again.', 401, 'SESSION_EXPIRED');
+  }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      Array.isArray(err.message) ? err.message.join(', ') : (err.message ?? `HTTP ${res.status}`),
+    const err = (await res.json().catch(() => ({}))) as {
+      message?: string | string[];
+      code?: string;
+      correlationId?: string;
+    };
+    const message = Array.isArray(err.message) ? err.message.join(', ') : err.message;
+    throw new ApiError(
+      message || messageForStatus(res.status),
+      res.status,
+      err.code,
+      err.correlationId ?? res.headers.get('x-correlation-id') ?? undefined,
     );
   }
+
+  if (res.status === 204) return undefined as T;
   const text = await res.text();
   if (!text) {
-    throw new Error(`API ${path} returned an empty body (HTTP ${res.status})`);
+    if ((options.method ?? 'GET').toUpperCase() !== 'GET') return undefined as T;
+    throw new ApiError(`API ${path} returned an empty body (HTTP ${res.status})`, res.status);
   }
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError('Received an unexpected response from the server.', res.status);
+  }
 }
 
 let refreshPromise: Promise<boolean> | null = null;

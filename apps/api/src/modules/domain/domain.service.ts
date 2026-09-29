@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
@@ -203,6 +204,11 @@ export class DomainService {
 
   async getVerificationChallenge(tenantId: string, domainId: string) {
     const domain = await this.getVerificationDomainForTenant(tenantId, domainId);
+    if (domain.status !== DomainStatus.PENDING) {
+      throw new BadRequestException(
+        `Only pending domains can be verified (current status: ${domain.status})`,
+      );
+    }
     const challenge = domain.challenges[0];
     if (!challenge) throw new BadRequestException('No verification challenge found');
 
@@ -228,6 +234,11 @@ export class DomainService {
     ipAddress?: string,
   ) {
     const domain = await this.getVerificationDomainForTenant(tenantId, domainId);
+    if (domain.status !== DomainStatus.PENDING) {
+      throw new BadRequestException(
+        `Only pending domains can be verified (current status: ${domain.status})`,
+      );
+    }
     const challenge = domain.challenges[0];
     if (!challenge) throw new BadRequestException('No verification challenge found');
 
@@ -279,8 +290,10 @@ export class DomainService {
     ipAddress?: string,
   ) {
     const domain = await this.getVerificationDomainForTenant(tenantId, domainId);
-    if (domain.status === DomainStatus.ACTIVE) {
-      throw new BadRequestException('Cannot refresh challenge for an active domain');
+    if (domain.status !== DomainStatus.PENDING) {
+      throw new BadRequestException(
+        `Challenges can only be refreshed for pending domains (current status: ${domain.status})`,
+      );
     }
 
     const txtRecord = `truemark-verify=${randomBytes(16).toString('hex')}`;
@@ -322,9 +335,16 @@ export class DomainService {
     userId: string,
     correlationId?: string,
     ipAddress?: string,
+    isPlatformAdmin = false,
   ) {
     const domain = await this.getVerificationDomainForTenant(tenantId, domainId);
     assertDomainStatusTransition(domain.status, status, 'verification domain');
+    if (status === DomainStatus.ACTIVE && domain.status === DomainStatus.PENDING) {
+      throw new BadRequestException('Pending domains are activated by completing DNS verification');
+    }
+    if (status === DomainStatus.ACTIVE && !isPlatformAdmin) {
+      throw new ForbiddenException('Only platform administrators can reactivate a domain');
+    }
 
     const updated = await this.prisma.client.verificationDomain.update({
       where: { id: domainId },
@@ -387,7 +407,11 @@ export class DomainService {
   async resolveTenantByHostname(hostname: string) {
     const normalized = hostname.toLowerCase().split(':')[0];
     return this.prisma.client.verificationDomain.findFirst({
-      where: { hostname: normalized, status: DomainStatus.ACTIVE },
+      where: {
+        hostname: normalized,
+        status: DomainStatus.ACTIVE,
+        tenant: { status: { notIn: [TenantStatus.SUSPENDED, TenantStatus.DISABLED] } },
+      },
       include: { tenant: true },
     });
   }

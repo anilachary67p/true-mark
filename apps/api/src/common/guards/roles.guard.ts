@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@truemark/db';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { AuthUser, rolesForTenant } from '../../modules/auth/auth.service';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -19,10 +20,14 @@ export class RolesGuard implements CanActivate {
     ]);
     if (!requiredRoles?.length) return true;
 
-    const { user } = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest();
+    const user: AuthUser | undefined = request.user;
     if (!user) return false;
 
-    const hasRole = requiredRoles.some((role) => user.roles?.includes(role));
+    const tenantId: string | undefined = request.params?.tenantId;
+    const effectiveRoles = tenantId ? rolesForTenant(user, tenantId) : user.roles;
+
+    const hasRole = requiredRoles.some((role) => effectiveRoles.includes(role));
     if (!hasRole) {
       throw new ForbiddenException('Insufficient permissions');
     }

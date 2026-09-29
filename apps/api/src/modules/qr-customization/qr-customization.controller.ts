@@ -6,18 +6,45 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, TenantId } from '../../common/decorators/current-user.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthUser } from '../auth/auth.service';
-import { IsObject, IsOptional, IsString } from 'class-validator';
+import { assertTenantObjectKey } from '../../providers/storage/storage-key.util';
+import {
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+class QrConfigDto {
+  @IsOptional() @IsInt() @Min(64) @Max(2048) width?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(16) quietZone?: number;
+  @IsOptional() @IsString() @Matches(HEX_COLOR) foregroundColor?: string;
+  @IsOptional() @IsString() @Matches(HEX_COLOR) backgroundColor?: string;
+  @IsOptional() @IsIn(['L', 'M', 'Q', 'H']) errorCorrectionLevel?: 'L' | 'M' | 'Q' | 'H';
+  @IsOptional() @IsString() @MaxLength(512) logoObjectKey?: string;
+  @IsOptional() @IsNumber() @Min(0.05) @Max(0.3) logoSizeRatio?: number;
+}
 
 class UpsertCustomizationDto {
-  @IsObject()
-  config!: Record<string, unknown>;
+  @ValidateNested()
+  @Type(() => QrConfigDto)
+  config!: QrConfigDto;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['tenant', 'category', 'product_type', 'variant', 'batch'])
   scope?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   scopeId?: string;
 }
 
@@ -42,6 +69,13 @@ export class QrCustomizationController {
     @Body() dto: UpsertCustomizationDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.service.upsert(tenantId, dto.config, user.id, dto.scope, dto.scopeId);
+    if (dto.config.logoObjectKey) assertTenantObjectKey(dto.config.logoObjectKey, tenantId);
+    return this.service.upsert(
+      tenantId,
+      { ...dto.config } as Record<string, unknown>,
+      user.id,
+      dto.scope,
+      dto.scopeId,
+    );
   }
 }

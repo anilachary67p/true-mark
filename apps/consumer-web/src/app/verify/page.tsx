@@ -1,8 +1,19 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import {
+  ACCEPTED_IMAGE_TYPES,
+  errorText,
+  postJson,
+  publicRequest,
+  resolveVerifyHostname,
+  validateImage,
+} from '@/lib/api';
+
+const MAX_CODE_LENGTH = 64;
+const MAX_QR_PAYLOAD_LENGTH = 2048;
 
 const QrScanner = dynamic(
   () => import('@/components/QrScanner').then((mod) => ({ default: mod.QrScanner })),
@@ -14,28 +25,8 @@ const QrScanner = dynamic(
   },
 );
 
-function resolveApiUrl(): string {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host !== 'localhost' && host !== '127.0.0.1') {
-      return `http://${host}:3001`;
-    }
-  }
-  return process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:3001';
-}
-
-function resolveVerifyHostname(): string {
-  if (process.env.NEXT_PUBLIC_VERIFY_HOSTNAME) {
-    return process.env.NEXT_PUBLIC_VERIFY_HOSTNAME;
-  }
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1') {
-      return 'verify.localhost';
-    }
-    return host;
-  }
-  return 'verify.localhost';
+function humanize(value: string | undefined | null): string {
+  return (value ?? '').replace(/_/g, ' ').trim();
 }
 
 interface VerifyResult {
@@ -71,84 +62,71 @@ function VerifyContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [companyDisplayName, setCompanyDisplayName] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const lastUrlParam = useRef<string | null>(null);
 
   useEffect(() => {
     const hostname = resolveVerifyHostname();
-    const apiUrl = resolveApiUrl();
-    fetch(`${apiUrl}/api/v1/public/verify/branding?hostname=${encodeURIComponent(hostname)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { companyDisplayName?: string | null } | null) => {
-        if (data?.companyDisplayName) setCompanyDisplayName(data.companyDisplayName);
+    publicRequest<{ companyDisplayName?: string | null }>(
+      `/verify/branding?hostname=${encodeURIComponent(hostname)}`,
+    )
+      .then((data) => {
+        if (typeof data?.companyDisplayName === 'string') setCompanyDisplayName(data.companyDisplayName);
       })
       .catch(() => {
         // Branding is optional; page still works without it.
       });
   }, []);
 
-  const verifyQr = useCallback(async (url: string) => {
-    const payload = url.trim();
-    const hostname = resolveVerifyHostname();
+  const runVerification = useCallback(async (path: '/verify/qr' | '/verify/code', payload: object) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
     setError('');
     setResult(null);
     try {
-      const apiUrl = resolveApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/public/verify/qr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: payload, hostname }),
-      });
-      const text = await res.text();
-      const data = text ? (JSON.parse(text) as VerifyResult & { message?: string }) : null;
-      if (!res.ok) {
-        setError(data?.message ?? `Verification request failed (${res.status})`);
-        return;
-      }
-      if (!data) {
-        setError('Empty response from verification service.');
+      const data = await postJson<VerifyResult>(path, { ...payload, hostname: resolveVerifyHostname() });
+      if (!data || typeof data.result !== 'string') {
+        setError('Unexpected response from the verification service.');
         return;
       }
       setResult(data);
     } catch (err) {
-      const hint =
-        err instanceof TypeError
-          ? 'Cannot reach the API. Start the stack with pnpm dev (API on port 3001).'
-          : 'Verification failed. Please try again.';
-      setError(hint);
+      setError(errorText(err, 'Verification failed. Please try again.'));
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    const qrUrl = searchParams.get('url');
-    if (qrUrl) verifyQr(qrUrl);
-  }, [searchParams, verifyQr]);
-
-  async function verifyManual(e: React.FormEvent) {
-    e.preventDefault();
-    const hostname = resolveVerifyHostname();
-    setLoading(true);
-    setError('');
-    setResult(null);
-    try {
-      const apiUrl = resolveApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/public/verify/code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, hostname }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message ?? `Verification request failed (${res.status})`);
+  const verifyQr = useCallback(
+    (url: string) => {
+      const payload = url.trim();
+      if (!payload) return;
+      if (payload.length > MAX_QR_PAYLOAD_LENGTH) {
+        setError('This QR code is not a valid TrueMark code.');
         return;
       }
-      setResult(data);
-    } catch {
-      setError('Verification failed. Please try again.');
-    } finally {
-      setLoading(false);
+      void runVerification('/verify/qr', { url: payload });
+    },
+    [runVerification],
+  );
+
+  useEffect(() => {
+    const qrUrl = searchParams.get('url');
+    if (!qrUrl || qrUrl === lastUrlParam.current) return;
+    lastUrlParam.current = qrUrl;
+    verifyQr(qrUrl);
+  }, [searchParams, verifyQr]);
+
+  function verifyManual(e: React.FormEvent) {
+    e.preventDefault();
+    const normalized = code.trim().toUpperCase();
+    if (!normalized) {
+      setError('Please enter the verification code printed on the product.');
+      return;
     }
+    void runVerification('/verify/code', { code: normalized });
   }
 
   const isSuccess = result && ['VERIFIED', 'REVERIFIED'].includes(result.result);
@@ -196,6 +174,11 @@ function VerifyContent() {
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
+                maxLength={MAX_CODE_LENGTH}
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                aria-describedby={error ? 'verify-error' : undefined}
                 placeholder="TM-XXXX-XXXX-XXXX"
                 style={{
                   display: 'block',
@@ -211,7 +194,7 @@ function VerifyContent() {
             </label>
             <button
               type="submit"
-              disabled={loading || !code}
+              disabled={loading || !code.trim()}
               style={{
                 width: '100%',
                 padding: '0.875rem',

@@ -34,6 +34,7 @@ describe('CoreVerificationService', () => {
       verificationEvent: { findMany: jest.Mock; create: jest.Mock };
       fraudConfig: { findUnique: jest.Mock };
       aiConfig: { findUnique: jest.Mock };
+      $transaction: jest.Mock;
     };
   };
   let domainService: { resolveTenantByHostname: jest.Mock };
@@ -54,6 +55,9 @@ describe('CoreVerificationService', () => {
         },
         fraudConfig: { findUnique: jest.fn().mockResolvedValue(null) },
         aiConfig: { findUnique: jest.fn().mockResolvedValue({ mode: AiMode.AI_OPTIONAL }) },
+        $transaction: jest.fn((fn: (tx: unknown) => unknown) =>
+          fn({ $queryRaw: jest.fn().mockResolvedValue([{ locked: 1 }]) }),
+        ),
       },
     };
     domainService = {

@@ -16,6 +16,7 @@ export function Button({
   variant = 'primary',
   className,
   size = 'md',
+  type = 'button',
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
@@ -28,8 +29,9 @@ export function Button({
   };
   return (
     <button
+      type={type}
       className={cn(
-        'inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 disabled:opacity-50',
+        'inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50',
         variants[variant],
         sizes[size],
         className,

@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AiMode, UserRole } from '@truemark/db';
-import { IsEnum, IsInt, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsInt, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { assertTenantObjectKey } from '../../providers/storage/storage-key.util';
 import { AiConfigService } from './ai-config.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, TenantId } from '../../common/decorators/current-user.decorator';
@@ -15,6 +16,8 @@ class UpdateAiConfigDto {
 
   @IsOptional()
   @IsInt()
+  @Min(0)
+  @Max(10_000_000)
   quota?: number;
 
   @IsOptional()
@@ -25,13 +28,15 @@ class UpdateAiConfigDto {
 class CreateReferenceDataDto {
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   scope?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   scopeId?: string;
 
   @IsString()
+  @MaxLength(512)
   objectKey!: string;
 
   @IsOptional()
@@ -92,6 +97,7 @@ export class ReferenceDataController {
     @Body() dto: CreateReferenceDataDto,
     @CurrentUser() user: AuthUser,
   ) {
+    assertTenantObjectKey(dto.objectKey, tenantId);
     return this.service.createReferenceData(tenantId, dto, user.id);
   }
 

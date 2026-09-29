@@ -1,4 +1,4 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, InternalServerErrorException } from '@nestjs/common';
 
 export const CurrentUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext) => {
@@ -17,6 +17,10 @@ export const CorrelationId = createParamDecorator(
 export const TenantId = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext) => {
     const request = ctx.switchToHttp().getRequest();
-    return request.tenantId ?? request.user?.tenantIds?.[0];
+    if (!request.tenantId) {
+      // Never fall back to an arbitrary tenant: an unscoped query could span all tenants.
+      throw new InternalServerErrorException('Tenant context missing — route must use TenantGuard');
+    }
+    return request.tenantId as string;
   },
 );

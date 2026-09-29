@@ -1,4 +1,5 @@
-export const PLATFORM_ADMIN_PATHS = new Set(['/dashboard', '/organizations', '/settings']);
+/** `/domains` is reachable (not in nav) so platform admins can manage a tenant's domains from Organizations. */
+export const PLATFORM_ADMIN_PATHS = new Set(['/dashboard', '/organizations', '/settings', '/domains']);
 
 export const PLATFORM_ADMIN_SETTINGS_PATHS = new Set([
   '/settings',
@@ -26,6 +27,7 @@ function resolvePathSegments(pathname: string) {
 }
 
 export function canAccessPath(pathname: string, roles: string[]): boolean {
+  if (roles.length === 0) return false;
   const { root, nested } = resolvePathSegments(pathname);
 
   if (isPlatformAdminRole(roles)) {

@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { DomainStatus, UserRole } from '@truemark/db';
-import { IsBoolean, IsEnum, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 import { Request } from 'express';
 import { DomainService } from './domain.service';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -20,15 +20,18 @@ import { AuthUser } from '../auth/auth.service';
 
 class CreateCompanyDomainDto {
   @IsUrl({ require_protocol: true })
+  @MaxLength(2048)
   url!: string;
 }
 
 class CreateVerificationDomainDto {
   @IsString()
+  @MaxLength(253)
   hostname!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   verificationPath?: string;
 
   @IsOptional()
@@ -195,6 +198,7 @@ export class DomainController {
       user.id,
       correlationId,
       req.ip,
+      user.globalRoles?.includes(UserRole.PLATFORM_ADMIN) ?? false,
     );
   }
 

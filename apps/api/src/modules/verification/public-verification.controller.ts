@@ -1,30 +1,48 @@
-import { Body, Controller, Get, Headers, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { IsOptional, IsString, IsNumber, IsEnum, ValidateNested } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsEnum,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { Request } from 'express';
 import { CoreVerificationService } from './core-verification.service';
 import { Public } from '../auth/public.decorator';
 import { CorrelationId } from '../../common/decorators/current-user.decorator';
+import { resolveConsumerHostname } from './consumer-hostname.util';
 
 class LocationDto {
-  @IsOptional() @IsString() country?: string;
-  @IsOptional() @IsString() region?: string;
-  @IsOptional() @IsString() city?: string;
-  @IsOptional() @IsNumber() latitude?: number;
-  @IsOptional() @IsNumber() longitude?: number;
+  @IsOptional() @IsString() @MaxLength(80) country?: string;
+  @IsOptional() @IsString() @MaxLength(120) region?: string;
+  @IsOptional() @IsString() @MaxLength(120) city?: string;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number;
   @IsOptional() @IsEnum(['GPS', 'IP', 'NETWORK', 'MANUAL', 'UNKNOWN']) source?:
-    'GPS' | 'IP' | 'NETWORK' | 'MANUAL' | 'UNKNOWN';
+    | 'GPS'
+    | 'IP'
+    | 'NETWORK'
+    | 'MANUAL'
+    | 'UNKNOWN';
 }
 
 class VerifyQrDto {
   /** Full verification URL or raw QR payload (token encoded in the barcode). */
   @IsString()
+  @MinLength(1)
+  @MaxLength(2048)
   url!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(253)
   hostname?: string;
 
   @IsOptional()
@@ -35,10 +53,13 @@ class VerifyQrDto {
 
 class VerifyCodeDto {
   @IsString()
+  @MinLength(4)
+  @MaxLength(64)
   code!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(253)
   hostname?: string;
 
   @IsOptional()
@@ -54,48 +75,39 @@ export class PublicVerificationController {
 
   @Public()
   @Get('branding')
-  getBranding(@Headers('host') host: string, @Query('hostname') hostname?: string) {
-    const resolved = (hostname ?? host)?.split(':')[0] ?? '';
-    return this.verificationService.getConsumerBranding(resolved);
+  getBranding(@Req() req: Request, @Query('hostname') hostname?: string) {
+    return this.verificationService.getConsumerBranding(resolveConsumerHostname(req, hostname));
   }
 
   @Public()
   @Throttle({ verify: { limit: 60, ttl: 60000 } })
   @Post('qr')
-  verifyQr(
-    @Body() dto: VerifyQrDto,
-    @Headers('host') host: string,
-    @CorrelationId() correlationId: string,
-    @Req() req: Request,
-  ) {
-    const hostname = (dto.hostname ?? host)?.split(':')[0] ?? '';
+  verifyQr(@Body() dto: VerifyQrDto, @CorrelationId() correlationId: string, @Req() req: Request) {
     return this.verificationService.verifyByQr(
-      dto.url,
-      hostname,
+      dto.url.trim(),
+      resolveConsumerHostname(req, dto.hostname),
       dto.location,
       correlationId,
       req.ip,
-      req.headers['user-agent'],
+      req.headers['user-agent']?.slice(0, 512),
     );
   }
 
   @Public()
-  @Throttle({ verify: { limit: 60, ttl: 60000 } })
+  @Throttle({ verify: { limit: 20, ttl: 60000 } })
   @Post('code')
   verifyCode(
     @Body() dto: VerifyCodeDto,
-    @Headers('host') host: string,
     @CorrelationId() correlationId: string,
     @Req() req: Request,
   ) {
-    const hostname = (dto.hostname ?? host)?.split(':')[0] ?? '';
     return this.verificationService.verifyByCode(
-      dto.code,
-      hostname,
+      dto.code.trim(),
+      resolveConsumerHostname(req, dto.hostname),
       dto.location,
       correlationId,
       req.ip,
-      req.headers['user-agent'],
+      req.headers['user-agent']?.slice(0, 512),
     );
   }
 }

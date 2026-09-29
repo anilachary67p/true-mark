@@ -1,8 +1,8 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, errorMessage, getToken, isApiError } from '@/lib/api';
 import { formatPrimaryRole } from '@/lib/roleLabels';
 import { isPlatformAdminRole } from '@/lib/roleAccess';
 
@@ -14,6 +14,8 @@ type SessionState = {
   isPlatformAdmin: boolean;
   loading: boolean;
   ready: boolean;
+  error: string;
+  retry: () => void;
 };
 
 const SessionContext = createContext<SessionState>({
@@ -24,40 +26,41 @@ const SessionContext = createContext<SessionState>({
   isPlatformAdmin: false,
   loading: true,
   ready: false,
+  error: '',
+  retry: () => {},
 });
 
-let cachedTenantId: string | null = null;
-let cachedUserEmail: string | null = null;
-let cachedRoles: string[] | null = null;
-let resolvePromise: Promise<string> | null = null;
+type CachedSession = { tenantId: string; userEmail: string; roles: string[] };
+
+let cachedSession: CachedSession | null = null;
+let resolvePromise: Promise<CachedSession> | null = null;
 
 export function clearSessionCache() {
-  cachedTenantId = null;
-  cachedUserEmail = null;
-  cachedRoles = null;
+  cachedSession = null;
   resolvePromise = null;
 }
 
 export async function prefetchSession(): Promise<void> {
   if (!getToken()) return;
-  await fetchTenantId();
+  await fetchSession();
 }
 
-async function fetchTenantId(): Promise<string> {
-  if (cachedTenantId) return cachedTenantId;
+async function fetchSession(): Promise<CachedSession> {
+  if (cachedSession) return cachedSession;
   if (resolvePromise) return resolvePromise;
 
   resolvePromise = (async () => {
     const me = await api.me();
-    cachedUserEmail = me.user.email;
-    cachedRoles = me.user.roles ?? [];
-    let tid = me.user.tenantIds[0];
-    if (!tid) {
-      const tenants = await api.getTenants();
-      tid = tenants[0]?.id ?? '';
+    const roles = Array.isArray(me.user?.roles) ? me.user.roles : [];
+    const tenantIds = Array.isArray(me.user?.tenantIds) ? me.user.tenantIds : [];
+    let tenantId = tenantIds[0] ?? '';
+    if (!tenantId && isPlatformAdminRole(roles)) {
+      const tenants = await api.getTenants().catch(() => []);
+      tenantId = tenants[0]?.id ?? '';
     }
-    cachedTenantId = tid;
-    return tid;
+    const session = { tenantId, userEmail: me.user?.email ?? '', roles };
+    cachedSession = session;
+    return session;
   })();
 
   try {
@@ -69,13 +72,16 @@ async function fetchTenantId(): Promise<string> {
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [tenantId, setTenantId] = useState(cachedTenantId ?? '');
-  const [userEmail, setUserEmail] = useState(cachedUserEmail ?? '');
-  const [roles, setRoles] = useState<string[]>(cachedRoles ?? []);
-  const [loading, setLoading] = useState(!cachedTenantId);
-  const [ready, setReady] = useState(!!cachedTenantId);
-  const roleLabel = formatPrimaryRole(roles);
-  const isPlatformAdmin = isPlatformAdminRole(roles);
+  const [session, setSession] = useState<CachedSession | null>(cachedSession);
+  const [loading, setLoading] = useState(!cachedSession);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const roles = session?.roles ?? [];
+
+  const retry = useCallback(() => {
+    setError('');
+    setAttempt((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     if (!getToken()) {
@@ -83,26 +89,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (cachedTenantId) {
-      setTenantId(cachedTenantId);
-      setUserEmail(cachedUserEmail ?? '');
-      setRoles(cachedRoles ?? []);
+    if (cachedSession) {
+      setSession(cachedSession);
       setLoading(false);
-      setReady(true);
       return;
     }
 
     let cancelled = false;
-    fetchTenantId()
-      .then((tid) => {
-        if (cancelled) return;
-        setTenantId(tid);
-        setUserEmail(cachedUserEmail ?? '');
-        setRoles(cachedRoles ?? []);
-        setReady(true);
+    setLoading(true);
+    fetchSession()
+      .then((s) => {
+        if (!cancelled) setSession(s);
       })
-      .catch(() => {
-        if (!cancelled) router.replace('/login');
+      .catch((err) => {
+        if (cancelled) return;
+        // 401 is handled centrally (redirect to login); anything else is shown with a retry.
+        if (!isApiError(err, 401)) setError(errorMessage(err, 'Unable to load your session.'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -111,11 +113,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, attempt]);
 
   return (
     <SessionContext.Provider
-      value={{ tenantId, userEmail, roles, roleLabel, isPlatformAdmin, loading, ready }}
+      value={{
+        tenantId: session?.tenantId ?? '',
+        userEmail: session?.userEmail ?? '',
+        roles,
+        roleLabel: formatPrimaryRole(roles),
+        isPlatformAdmin: isPlatformAdminRole(roles),
+        loading,
+        ready: !!session,
+        error,
+        retry,
+      }}
     >
       {children}
     </SessionContext.Provider>

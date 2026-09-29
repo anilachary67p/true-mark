@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { api } from '@/lib/api';
-import { useTenantId } from '@/lib/hooks';
+import { useSession } from '@/providers/SessionProvider';
 
 export type LicenseStatusView = {
   tenantId: string;
@@ -39,27 +39,35 @@ const LicenseContext = createContext<LicenseContextValue>({
 });
 
 export function LicenseProvider({ children }: { children: ReactNode }) {
-  const tenantId = useTenantId();
+  const { tenantId, isPlatformAdmin, ready } = useSession();
   const [license, setLicense] = useState<LicenseStatusView | null>(null);
   const [loading, setLoading] = useState(true);
+  // Platform admins manage licenses for every tenant; one tenant's license must never lock them out.
+  const applies = ready && !isPlatformAdmin && !!tenantId;
 
   const refresh = useCallback(async () => {
-    if (!tenantId) return;
+    if (!applies) return;
     setLoading(true);
     try {
       setLicense(await api.getLicenseStatus(tenantId));
     } catch {
-      setLicense(null);
+      // Keep the last known status on transient failures; the API enforces licensing server-side.
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [applies, tenantId]);
 
   useEffect(() => {
-    if (tenantId) refresh();
-  }, [tenantId, refresh]);
+    if (!ready) return;
+    if (!applies) {
+      setLicense(null);
+      setLoading(false);
+      return;
+    }
+    refresh();
+  }, [ready, applies, refresh]);
 
-  const status = license?.status ?? 'ACTIVE';
+  const status = applies ? (license?.status ?? 'ACTIVE') : 'ACTIVE';
   const isBlocked = status === 'BLOCKED' || status === 'MISSING';
   const showGraceModal = status === 'EXPIRED_GRACE';
   const showWarning = ['WARNING_30', 'WARNING_15', 'WARNING_7', 'EXPIRED_GRACE'].includes(status);

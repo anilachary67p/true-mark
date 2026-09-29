@@ -7,7 +7,7 @@ import { LicenseBlockedScreen } from '@/components/LicenseBlockedScreen';
 export function LicenseGate({ children }: { children: React.ReactNode }) {
   const { loading, isBlocked } = useLicense();
 
-  if (loading) return <>{children}</>;
+  if (loading) return null;
 
   if (isBlocked) {
     return <LicenseBlockedScreen />;

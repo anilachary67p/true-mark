@@ -189,6 +189,13 @@ export class ProductService {
     data: { manufacturingDate?: Date; expiryDate?: Date; metadata?: object },
     userId: string,
   ) {
+    if (
+      data.manufacturingDate &&
+      data.expiryDate &&
+      data.expiryDate.getTime() <= data.manufacturingDate.getTime()
+    ) {
+      throw new BadRequestException('expiryDate must be after manufacturingDate');
+    }
     await this.requireVariant(tenantId, productVariantId);
     try {
       const batch = await this.prisma.client.batch.create({
@@ -594,6 +601,20 @@ export class ProductService {
       throw new BadRequestException('Cannot generate units for a recalled or revoked batch');
     }
 
+    const runningJob = await this.prisma.client.bulkJob.findFirst({
+      where: {
+        tenantId,
+        batchId,
+        status: { in: [BulkJobStatus.PENDING, BulkJobStatus.PROCESSING] },
+      },
+      select: { id: true },
+    });
+    if (runningJob) {
+      throw new ConflictException(
+        `Unit generation is already in progress for this batch (job ${runningJob.id})`,
+      );
+    }
+
     const existingCount = await this.prisma.client.productUnit.count({
       where: { batchId, tenantId },
     });
@@ -624,13 +645,21 @@ export class ProductService {
     const job = await this.prisma.client.bulkJob.create({
       data: { tenantId, batchId, quantity, status: BulkJobStatus.PENDING },
     });
-    await enqueue({
-      jobId: job.id,
-      tenantId,
-      batchId,
-      quantity,
-      serialPrefix,
-    });
+    try {
+      await enqueue({
+        jobId: job.id,
+        tenantId,
+        batchId,
+        quantity,
+        serialPrefix,
+      });
+    } catch (error) {
+      await this.prisma.client.bulkJob.update({
+        where: { id: job.id },
+        data: { status: BulkJobStatus.FAILED },
+      });
+      throw error;
+    }
     return { mode: 'async' as const, jobId: job.id, status: BulkJobStatus.PENDING };
   }
 

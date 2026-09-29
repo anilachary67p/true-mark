@@ -1,12 +1,18 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ObjectMetadata, ObjectRef, ObjectStorageProvider } from '../interfaces';
+import { assertSafeObjectKey } from './storage-key.util';
 
 export class LocalStorageProvider implements ObjectStorageProvider {
-  private basePath = path.join(process.cwd(), '.storage');
+  private basePath = path.resolve(process.cwd(), '.storage');
 
   private resolveKey(key: string): string {
-    return path.join(this.basePath, key);
+    assertSafeObjectKey(key);
+    const resolved = path.resolve(this.basePath, key);
+    if (!resolved.startsWith(this.basePath + path.sep)) {
+      throw new Error('Object key escapes storage root');
+    }
+    return resolved;
   }
 
   async upload(

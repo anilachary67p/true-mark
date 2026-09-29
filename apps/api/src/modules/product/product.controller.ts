@@ -1,7 +1,25 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { parsePagination } from '../../common/utils/pagination.util';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { LifecycleStatus, UserRole } from '@truemark/db';
-import { IsString, IsOptional, IsInt, Min, Max, IsDateString, IsEnum, IsArray } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
+
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 import { ProductService } from './product.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, TenantId } from '../../common/decorators/current-user.decorator';
@@ -11,36 +29,50 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 
 class CreateCategoryDto {
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
   name!: string;
 }
 
 class CreateProductTypeDto {
-  @IsString()
+  @IsUUID()
   categoryId!: string;
 
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
   name!: string;
 }
 
 class CreateVariantDto {
-  @IsString()
+  @IsUUID()
   productTypeId!: string;
 
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
   name!: string;
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(50)
   @IsString({ each: true })
+  @MaxLength(50, { each: true })
   tags?: string[];
 }
 
 class CreateBatchDto {
-  @IsString()
+  @IsUUID()
   productVariantId!: string;
 
+  @Transform(trim)
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
   batchCode!: string;
 
   @IsOptional()
@@ -60,6 +92,7 @@ class BulkGenerateDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^[A-Za-z0-9-]{1,16}$/, { message: 'serialPrefix must be 1-16 letters, digits or dashes' })
   serialPrefix?: string;
 }
 
@@ -69,6 +102,7 @@ class UpdateStatusDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   reason?: string;
 }
 
@@ -253,12 +287,8 @@ export class ProductController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.productService.listUnits(
-      batchId,
-      tenantId,
-      limit ? Math.min(parseInt(limit, 10), 500) : 100,
-      offset ? parseInt(offset, 10) : 0,
-    );
+    const page = parsePagination(limit, offset, { defaultLimit: 100, maxLimit: 500 });
+    return this.productService.listUnits(batchId, tenantId, page.take, page.skip);
   }
 
   @Patch('product-units/:unitId/status')

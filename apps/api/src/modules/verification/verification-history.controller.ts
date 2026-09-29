@@ -1,28 +1,29 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@truemark/db';
-import { IsOptional, IsString } from 'class-validator';
+import { UserRole, VerificationResult } from '@truemark/db';
+import { IsEnum, IsISO8601, IsOptional, IsUUID } from 'class-validator';
 import { VerificationHistoryService } from './verification-history.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { TenantId } from '../../common/decorators/current-user.decorator';
 import { parseDateRange } from '../../common/utils/date-range.util';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
-class HistoryQueryDto {
+class HistoryQueryDto extends PaginationQueryDto {
   @IsOptional()
-  @IsString()
+  @IsUUID()
   productUnitId?: string;
 
   @IsOptional()
-  @IsString()
-  result?: string;
+  @IsEnum(VerificationResult)
+  result?: VerificationResult;
 
   @IsOptional()
-  @IsString()
+  @IsISO8601()
   from?: string;
 
   @IsOptional()
-  @IsString()
+  @IsISO8601()
   to?: string;
 }
 
@@ -43,18 +44,13 @@ export class VerificationHistoryController {
 
   @Get()
   @Roles(...HISTORY_ROLES)
-  list(
-    @TenantId() tenantId: string,
-    @Query() query: HistoryQueryDto,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ) {
+  list(@TenantId() tenantId: string, @Query() query: HistoryQueryDto) {
     const range =
       query.from || query.to ? parseDateRange(query.from, query.to, 365) : undefined;
 
     return this.historyService.listForTenant(tenantId, {
-      limit: limit ? parseInt(limit, 10) : 50,
-      offset: offset ? parseInt(offset, 10) : 0,
+      limit: Math.min(query.limit ?? 50, 200),
+      offset: query.offset ?? 0,
       productUnitId: query.productUnitId,
       result: query.result,
       from: range?.from,

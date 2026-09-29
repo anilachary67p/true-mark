@@ -17,7 +17,7 @@ describe('ProductService', () => {
       productVariantTag: { upsert: jest.Mock };
       batch: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
       productUnit: { findFirst: jest.Mock; findMany: jest.Mock; count: jest.Mock; update: jest.Mock };
-      bulkJob: { create: jest.Mock; findFirst: jest.Mock };
+      bulkJob: { create: jest.Mock; findFirst: jest.Mock; update: jest.Mock };
       tenant: { findUnique: jest.Mock };
       $transaction: jest.Mock;
     };
@@ -109,6 +109,7 @@ describe('ProductService', () => {
         bulkJob: {
           create: jest.fn().mockResolvedValue({ id: 'job-1', status: BulkJobStatus.PENDING }),
           findFirst: jest.fn().mockResolvedValue({ id: 'job-1', tenantId: tenantA, status: BulkJobStatus.COMPLETED }),
+          update: jest.fn().mockResolvedValue({}),
         },
         tenant: { findUnique: jest.fn().mockResolvedValue({ id: tenantA, name: 'Tenant A' }) },
         $transaction: jest.fn((fn) => fn(prisma.client)),
@@ -138,6 +139,18 @@ describe('ProductService', () => {
   });
 
   describe('createBatch', () => {
+    it('rejects expiry on or before manufacturing date', async () => {
+      await expect(
+        service.createBatch(
+          tenantA,
+          'v1',
+          'BATCH-1',
+          { manufacturingDate: new Date('2026-05-01'), expiryDate: new Date('2026-04-01') },
+          userId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('rejects duplicate batch code', async () => {
       prisma.client.batch.create.mockRejectedValue({ code: 'P2002' });
       await expect(service.createBatch(tenantA, 'v1', 'BATCH-DUP', {}, userId)).rejects.toThrow(
@@ -161,6 +174,29 @@ describe('ProductService', () => {
   });
 
   describe('startUnitGeneration', () => {
+    beforeEach(() => {
+      prisma.client.bulkJob.findFirst.mockResolvedValue(null);
+    });
+
+    it('rejects generation while another job for the batch is running', async () => {
+      prisma.client.bulkJob.findFirst.mockResolvedValue({ id: 'job-running' });
+      await expect(
+        service.startUnitGeneration(tenantA, 'batch-1', 10, 'ABC', userId, jest.fn()),
+      ).rejects.toThrow(ConflictException);
+      expect(unitGeneration.generateUnits).not.toHaveBeenCalled();
+    });
+
+    it('marks the job FAILED when enqueueing fails', async () => {
+      const enqueue = jest.fn().mockRejectedValue(new Error('redis down'));
+      await expect(
+        service.startUnitGeneration(tenantA, 'batch-1', 1000, 'ABC', userId, enqueue),
+      ).rejects.toThrow('redis down');
+      expect(prisma.client.bulkJob.update).toHaveBeenCalledWith({
+        where: { id: 'job-1' },
+        data: { status: BulkJobStatus.FAILED },
+      });
+    });
+
     it('generates units synchronously for small quantities', async () => {
       const result = await service.startUnitGeneration(tenantA, 'batch-1', 10, 'ABC', userId, jest.fn());
       expect(result.mode).toBe('sync');

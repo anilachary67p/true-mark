@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { IsString, MinLength, IsEmail } from 'class-validator';
+import { IsString, MinLength, MaxLength, IsEmail } from 'class-validator';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -11,16 +11,19 @@ import { AuthUser } from './auth.service';
 
 class LoginDto {
   @IsEmail()
+  @MaxLength(254)
   email!: string;
 
   @IsString()
   @MinLength(8)
+  @MaxLength(256)
   password!: string;
 }
 
 class RefreshDto {
   @IsString()
   @MinLength(16)
+  @MaxLength(512)
   refreshToken!: string;
 }
 
@@ -44,6 +47,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('logout')
   logout(@Body() dto: RefreshDto) {
     return this.authService.logout(dto.refreshToken);
@@ -52,8 +56,8 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('logout-all')
-  logoutAll(@CurrentUser() user: AuthUser, @Body() dto: RefreshDto) {
-    return this.authService.logout(dto.refreshToken, user.id);
+  logoutAll(@CurrentUser() user: AuthUser) {
+    return this.authService.logoutAll(user.id);
   }
 
   @ApiBearerAuth()

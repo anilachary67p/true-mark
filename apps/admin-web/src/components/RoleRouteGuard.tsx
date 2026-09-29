@@ -10,16 +10,28 @@ export function RoleRouteGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { roles, ready } = useSession();
 
+  const allowed = ready && canAccessPath(pathname, roles);
+  const hasNoRoles = ready && roles.length === 0;
+
   useEffect(() => {
-    if (!ready || roles.length === 0) return;
-    if (!canAccessPath(pathname, roles)) {
-      router.replace('/dashboard');
-    }
-  }, [pathname, roles, ready, router]);
+    if (!ready || allowed || hasNoRoles) return;
+    router.replace('/dashboard');
+  }, [ready, allowed, hasNoRoles, router]);
 
   if (!ready) return null;
 
-  if (!canAccessPath(pathname, roles)) {
+  if (hasNoRoles) {
+    return (
+      <div className="mx-auto max-w-lg rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
+        <p className="text-lg font-semibold text-hope-dark">No access assigned</p>
+        <p className="mt-2 text-sm text-hope-secondary">
+          Your account has no role in any organization. Contact your administrator.
+        </p>
+      </div>
+    );
+  }
+
+  if (!allowed) {
     return null;
   }
 

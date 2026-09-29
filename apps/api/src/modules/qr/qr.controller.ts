@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { LifecycleStatus, UserRole } from '@truemark/db';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
@@ -7,6 +17,10 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, TenantId } from '../../common/decorators/current-user.decorator';
 import { TenantGuard } from '../../common/guards/tenant.guard';
 import { AuthUser } from '../auth/auth.service';
+import { parsePagination } from '../../common/utils/pagination.util';
+
+const EXPORT_FORMATS = ['PNG', 'SVG', 'ZIP'] as const;
+type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 class UpdateQrStatusDto {
   @IsEnum(LifecycleStatus)
@@ -33,11 +47,8 @@ export class QrController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.qrService.listByTenant(
-      tenantId,
-      limit ? parseInt(limit, 10) : 100,
-      offset ? parseInt(offset, 10) : 0,
-    );
+    const page = parsePagination(limit, offset, { defaultLimit: 100, maxLimit: 500 });
+    return this.qrService.listByTenant(tenantId, page.take, page.skip);
   }
 
   @Get('preview')
@@ -61,10 +72,14 @@ export class QrController {
   exportBatch(
     @TenantId() tenantId: string,
     @Param('batchId') batchId: string,
-    @Query('format') format: 'PNG' | 'SVG' | 'ZIP' = 'PNG',
+    @Query('format') format: string = 'PNG',
     @Query('limit') limit?: string,
   ) {
-    return this.qrService.exportBatch(tenantId, batchId, format, limit ? parseInt(limit, 10) : 100);
+    if (!EXPORT_FORMATS.includes(format as ExportFormat)) {
+      throw new BadRequestException(`format must be one of ${EXPORT_FORMATS.join(', ')}`);
+    }
+    const { take } = parsePagination(limit, undefined, { defaultLimit: 100, maxLimit: 500 });
+    return this.qrService.exportBatch(tenantId, batchId, format as ExportFormat, take);
   }
 
   @Post(':qrCodeId/export')
@@ -72,8 +87,11 @@ export class QrController {
   export(
     @TenantId() tenantId: string,
     @Param('qrCodeId') qrCodeId: string,
-    @Query('format') format: 'PNG' | 'SVG' = 'PNG',
+    @Query('format') format: string = 'PNG',
   ) {
+    if (format !== 'PNG' && format !== 'SVG') {
+      throw new BadRequestException('format must be PNG or SVG');
+    }
     return this.qrService.exportQr(qrCodeId, tenantId, format);
   }
 

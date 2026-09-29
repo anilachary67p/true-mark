@@ -297,74 +297,88 @@ export class CoreVerificationService {
       });
     }
 
-    const previousEvents = await this.prisma.client.verificationEvent.findMany({
-      where: { productUnitId: unit.id, tenantId: params.tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      include: { location: true },
-    });
+    // Serialize verifications of the same unit so concurrent scans of a cloned code
+    // observe each other's events instead of all being classified as first-scan VERIFIED.
+    return this.withUnitLock(unit.id, async () => {
+      const previousEvents = await this.prisma.client.verificationEvent.findMany({
+        where: { productUnitId: unit.id, tenantId: params.tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: { location: true },
+      });
 
-    const fraudConfig = await this.prisma.client.fraudConfig.findUnique({
-      where: { tenantId: params.tenantId },
-    });
+      const fraudConfig = await this.prisma.client.fraudConfig.findUnique({
+        where: { tenantId: params.tenantId },
+      });
 
-    const windowStart = new Date(
-      Date.now() - (fraudConfig?.highScanWindowMinutes ?? 30) * 60 * 1000,
+      const windowStart = new Date(
+        Date.now() - (fraudConfig?.highScanWindowMinutes ?? 30) * 60 * 1000,
+      );
+      const recentScans = previousEvents.filter((e) => e.createdAt >= windowStart).length;
+
+      const evaluation = this.signalEvaluator.evaluateReuse({
+        previousCount: previousEvents.length,
+        lastLocation: previousEvents[0]?.location
+          ? {
+              country: previousEvents[0].location.country ?? undefined,
+              region: previousEvents[0].location.region ?? undefined,
+              city: previousEvents[0].location.city ?? undefined,
+              latitude: previousEvents[0].location.latitude ?? undefined,
+              longitude: previousEvents[0].location.longitude ?? undefined,
+              source: previousEvents[0].location.source,
+            }
+          : null,
+        currentLocation: params.location,
+        lastVerifiedAt: previousEvents[0]?.createdAt,
+        config: fraudConfig ?? undefined,
+        recentScansInWindow: recentScans,
+      });
+
+      let result: VerificationResult = VerificationResult.VERIFIED;
+      if (previousEvents.length > 0) {
+        result = evaluation.suggestedResult ?? VerificationResult.REVERIFIED;
+      }
+      if (evaluation.suggestedResult === VerificationResult.POSSIBLE_CLONE) {
+        result = VerificationResult.POSSIBLE_CLONE;
+      } else if (evaluation.suggestedResult === VerificationResult.SUSPICIOUS) {
+        result = VerificationResult.SUSPICIOUS;
+      }
+
+      const aiConfig = await this.prisma.client.aiConfig.findUnique({
+        where: { tenantId: params.tenantId },
+      });
+      const aiMode = aiConfig?.mode ?? AiMode.AI_DISABLED;
+
+      const response = await this.recordAndReturn({
+        tenantId: params.tenantId,
+        productUnitId: unit.id,
+        qrCodeId: unit.qrCode?.id,
+        result,
+        method: params.method,
+        verificationDomainId: params.verificationDomainId,
+        domainConfigVersion: params.domainConfigVersion,
+        correlationId: params.correlationId,
+        ipAddress: params.ipAddress,
+        userAgent: params.userAgent,
+        location: params.location,
+        productSnapshot: this.buildSnapshot(unit),
+        riskLevel: evaluation.riskLevel,
+        fraudSignals: evaluation.signals,
+        aiMode,
+      });
+
+      return response;
+    });
+  }
+
+  private async withUnitLock<T>(productUnitId: string, fn: () => Promise<T>): Promise<T> {
+    return this.prisma.client.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${productUnitId}, 0))`;
+        return fn();
+      },
+      { maxWait: 5_000, timeout: 15_000 },
     );
-    const recentScans = previousEvents.filter((e) => e.createdAt >= windowStart).length;
-
-    const evaluation = this.signalEvaluator.evaluateReuse({
-      previousCount: previousEvents.length,
-      lastLocation: previousEvents[0]?.location
-        ? {
-            country: previousEvents[0].location.country ?? undefined,
-            region: previousEvents[0].location.region ?? undefined,
-            city: previousEvents[0].location.city ?? undefined,
-            latitude: previousEvents[0].location.latitude ?? undefined,
-            longitude: previousEvents[0].location.longitude ?? undefined,
-            source: previousEvents[0].location.source,
-          }
-        : null,
-      currentLocation: params.location,
-      lastVerifiedAt: previousEvents[0]?.createdAt,
-      config: fraudConfig ?? undefined,
-      recentScansInWindow: recentScans,
-    });
-
-    let result: VerificationResult = VerificationResult.VERIFIED;
-    if (previousEvents.length > 0) {
-      result = evaluation.suggestedResult ?? VerificationResult.REVERIFIED;
-    }
-    if (evaluation.suggestedResult === VerificationResult.POSSIBLE_CLONE) {
-      result = VerificationResult.POSSIBLE_CLONE;
-    } else if (evaluation.suggestedResult === VerificationResult.SUSPICIOUS) {
-      result = VerificationResult.SUSPICIOUS;
-    }
-
-    const aiConfig = await this.prisma.client.aiConfig.findUnique({
-      where: { tenantId: params.tenantId },
-    });
-    const aiMode = aiConfig?.mode ?? AiMode.AI_DISABLED;
-
-    const response = await this.recordAndReturn({
-      tenantId: params.tenantId,
-      productUnitId: unit.id,
-      qrCodeId: unit.qrCode?.id,
-      result,
-      method: params.method,
-      verificationDomainId: params.verificationDomainId,
-      domainConfigVersion: params.domainConfigVersion,
-      correlationId: params.correlationId,
-      ipAddress: params.ipAddress,
-      userAgent: params.userAgent,
-      location: params.location,
-      productSnapshot: this.buildSnapshot(unit),
-      riskLevel: evaluation.riskLevel,
-      fraudSignals: evaluation.signals,
-      aiMode,
-    });
-
-    return response;
   }
 
   /**

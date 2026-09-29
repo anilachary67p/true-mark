@@ -1,10 +1,14 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '../../providers/prisma.service';
 import { Public } from '../auth/public.decorator';
 import { HybridBoundaryService } from '../hybrid/hybrid-boundary.service';
 
+const DB_CHECK_TIMEOUT_MS = 3000;
+
 @ApiTags('health')
+@SkipThrottle()
 @Controller({ path: 'health', version: '1' })
 export class HealthController {
   constructor(
@@ -21,7 +25,20 @@ export class HealthController {
   @Public()
   @Get('ready')
   async ready() {
-    await this.prisma.client.$queryRaw`SELECT 1`;
+    try {
+      await Promise.race([
+        this.prisma.client.$queryRaw`SELECT 1`,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('database check timed out')), DB_CHECK_TIMEOUT_MS).unref(),
+        ),
+      ]);
+    } catch {
+      throw new ServiceUnavailableException({
+        status: 'not_ready',
+        checks: { database: 'down' },
+      });
+    }
+
     const hybridGateway = await this.hybridBoundary.checkGatewayReachable();
     return {
       status: 'ready',

@@ -3,12 +3,13 @@ import { ApiTags, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { ImageViewAngle } from '@truemark/db';
-import { IsEnum, IsString } from 'class-validator';
+import { IsEnum, IsString, MaxLength } from 'class-validator';
 import { AiOrchestrationService } from './ai-orchestration.service';
 import { Public } from '../auth/public.decorator';
 
 class InitiateAiDto {
   @IsString()
+  @MaxLength(64)
   verificationPublicId!: string;
 }
 
@@ -33,7 +34,9 @@ export class AiOrchestrationController {
   @Throttle({ ai: { limit: 10, ttl: 60000 } })
   @Post(':jobId/images')
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('image', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 5 } }),
+  )
   uploadImage(
     @Param('jobId') jobId: string,
     @Body() dto: UploadAiImageDto,
