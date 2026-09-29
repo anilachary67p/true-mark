@@ -8,7 +8,9 @@ import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useEffect, useState } from 'react';
+import { DateRangePicker, getDefaultDateRange } from '@/components/DateRangePicker';
 import { api } from '@/lib/api';
+import { DateRangeValue } from '@/lib/dateRange';
 import { useAuthGuard, useTenantId } from '@/lib/hooks';
 import { useAsyncData, useDebouncedValue } from '@/lib/useAsync';
 import { formatDateTime, formatNumber, toFiniteNumber } from '@/lib/format';
@@ -31,6 +33,7 @@ export default function AuditLogPage() {
   const [actionFilter, setActionFilter] = useState('');
   const [resourceFilter, setResourceFilter] = useState('');
   const [offset, setOffset] = useState(0);
+  const [range, setRange] = useState<DateRangeValue>(() => getDefaultDateRange(30));
 
   const debouncedAction = useDebouncedValue(actionFilter.trim(), 350);
   const debouncedResource = useDebouncedValue(resourceFilter.trim(), 350);
@@ -41,7 +44,7 @@ export default function AuditLogPage() {
 
   useEffect(() => {
     setOffset(0);
-  }, [debouncedAction, debouncedResource, tenantId]);
+  }, [debouncedAction, debouncedResource, tenantId, range.from, range.to]);
 
   const { data, loading, error, reload } = useAsyncData(
     async () => {
@@ -50,13 +53,14 @@ export default function AuditLogPage() {
         offset,
         action: debouncedAction || undefined,
         resourceType: debouncedResource || undefined,
+        range,
       });
       return {
         items: (Array.isArray(res?.items) ? res.items : []) as AuditItem[],
         total: toFiniteNumber(res?.total),
       };
     },
-    [tenantId, offset, debouncedAction, debouncedResource],
+    [tenantId, offset, debouncedAction, debouncedResource, range.from, range.to],
     { enabled: !!tenantId && !filterError },
   );
 
@@ -76,6 +80,7 @@ export default function AuditLogPage() {
       <PageHeader
         title="Audit Log"
         subtitle={`Immutable record of admin actions (${formatNumber(total)} total)`}
+        action={<DateRangePicker value={range} onChange={setRange} />}
       />
       <div className="mb-4 grid max-w-2xl gap-4 sm:grid-cols-2">
         <Input

@@ -563,13 +563,21 @@ export const api = {
 
   getAuditLogs: (
     tenantId: string,
-    params?: { limit?: number; offset?: number; action?: string; resourceType?: string },
+    params?: {
+      limit?: number;
+      offset?: number;
+      action?: string;
+      resourceType?: string;
+      range?: Partial<DateRangeValue>;
+    },
   ) => {
     const q = new URLSearchParams();
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.offset) q.set('offset', String(params.offset));
     if (params?.action) q.set('action', params.action);
     if (params?.resourceType) q.set('resourceType', params.resourceType);
+    if (params?.range?.from) q.set('from', params.range.from);
+    if (params?.range?.to) q.set('to', params.range.to);
     const qs = q.toString();
     return request<{
       items: Array<{
@@ -603,10 +611,11 @@ export const api = {
 
   getVerificationHistory: (
     tenantId: string,
-    options: { limit?: number; range?: DateRangeValue } = {},
+    options: { limit?: number; offset?: number; range?: DateRangeValue } = {},
   ) => {
     const params = new URLSearchParams();
     if (options.limit) params.set('limit', String(options.limit));
+    if (options.offset) params.set('offset', String(options.offset));
     if (options.range?.from) params.set('from', options.range.from);
     if (options.range?.to) params.set('to', options.range.to);
     const qs = params.toString();

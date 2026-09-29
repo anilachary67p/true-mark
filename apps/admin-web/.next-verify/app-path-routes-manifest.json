@@ -1,0 +1,20 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/login/page": "/login",
+  "/page": "/",
+  "/(admin)/ai-detection/page": "/ai-detection",
+  "/(admin)/analytics/page": "/analytics",
+  "/(admin)/dashboard/page": "/dashboard",
+  "/(admin)/domains/page": "/domains",
+  "/(admin)/fraud-intelligence/page": "/fraud-intelligence",
+  "/(admin)/investigations/page": "/investigations",
+  "/(admin)/organizations/page": "/organizations",
+  "/(admin)/products/page": "/products",
+  "/(admin)/qr-customization/page": "/qr-customization",
+  "/(admin)/qr-codes/page": "/qr-codes",
+  "/(admin)/verification-history/page": "/verification-history",
+  "/(admin)/settings/notifications/page": "/settings/notifications",
+  "/(admin)/audit-log/page": "/audit-log",
+  "/(admin)/settings/page": "/settings",
+  "/(admin)/settings/config/page": "/settings/config"
+}
