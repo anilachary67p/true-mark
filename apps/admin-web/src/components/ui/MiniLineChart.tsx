@@ -1,9 +1,12 @@
 'use client';
 
 import { useId } from 'react';
+import { toFiniteNumber } from '@/lib/format';
 import { cn } from './cn';
 
-const DECORATIVE_POINTS = [12, 18, 15, 24, 20, 28, 22, 30, 26, 34, 29, 36];
+function sanitize(series: number[] | undefined): number[] {
+  return Array.isArray(series) ? series.map(toFiniteNumber) : [];
+}
 
 function buildLinePath(coords: Array<{ x: number; y: number }>): string {
   if (coords.length === 0) return '';
@@ -47,9 +50,11 @@ export function MiniLineChart({
   className?: string;
 }) {
   const gradientId = useId();
-  const data = points && points.length > 0 ? points : DECORATIVE_POINTS;
-  const data2 = points2 && points2.length > 0 ? points2 : undefined;
+  const data = sanitize(points);
+  const sanitized2 = sanitize(points2);
+  const data2 = sanitized2.length > 0 ? sanitized2 : undefined;
   const combined = data2 ? [...data, ...data2] : data;
+  const hasData = data.length > 0;
 
   const width = 400;
   const height = compact ? 56 : 140;
@@ -57,8 +62,8 @@ export function MiniLineChart({
     ? { top: 6, right: 4, bottom: 6, left: 4 }
     : { top: 12, right: 8, bottom: 16, left: 8 };
 
-  const max = Math.max(...combined, 1);
-  const min = Math.min(...combined, 0);
+  const max = combined.reduce((m, v) => Math.max(m, v), 1);
+  const min = combined.reduce((m, v) => Math.min(m, v), 0);
   const span = max - min || 1;
   const gridLines = compact ? 2 : 4;
 
@@ -81,7 +86,7 @@ export function MiniLineChart({
       className={cn('h-full w-full', className)}
       preserveAspectRatio="none"
       role="img"
-      aria-label="Trend chart"
+      aria-label={hasData ? `Trend chart, latest value ${data[data.length - 1].toLocaleString()}` : 'Trend chart, no data'}
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -114,14 +119,14 @@ export function MiniLineChart({
         strokeWidth="1"
       />
 
-      {allZero && points && points.length > 0 ? (
+      {!hasData || allZero ? (
         <text
           x={width / 2}
           y={height / 2}
           textAnchor="middle"
           className="fill-slate-400 text-[11px]"
         >
-          No activity in this period
+          {hasData ? 'No activity in this period' : 'No data yet'}
         </text>
       ) : (
         <>

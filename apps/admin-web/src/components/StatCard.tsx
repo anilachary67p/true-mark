@@ -50,18 +50,14 @@ export function StatCard({
           )}
           <p className="text-sm font-medium text-hope-secondary">{label}</p>
         </div>
-        {action ?? (
-          <button type="button" className="text-xs font-semibold text-hope-primary hover:underline">
-            View
-          </button>
-        )}
+        {action}
       </div>
 
       <p className="text-3xl font-bold tracking-tight text-hope-dark">{value}</p>
 
       {footer && <p className="mt-1 text-xs text-hope-muted">{footer}</p>}
 
-      {showChart && (
+      {showChart && Array.isArray(chartValues) && chartValues.length > 0 && (
         <div className="mt-4 h-16 border-t border-slate-100 pt-3">
           <MiniLineChart
             points={chartValues}

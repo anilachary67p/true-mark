@@ -1,3 +1,4 @@
+import { toFiniteNumber } from '@/lib/format';
 import { cn } from './cn';
 
 const BAR_COLORS = [
@@ -10,8 +11,6 @@ const BAR_COLORS = [
   'bg-amber-500',
   'bg-sky-500',
 ];
-
-const DECORATIVE_BARS = [22, 38, 28, 52, 34, 46, 30, 44, 26, 40, 36, 48];
 
 const CHART_HEIGHT = 112;
 
@@ -28,9 +27,20 @@ export function MiniBarChart({
   height?: number;
   showGrid?: boolean;
 }) {
-  const data = values && values.length > 0 ? values : DECORATIVE_BARS;
-  const max = Math.max(...data, 1);
+  const data = Array.isArray(values) ? values.map((v) => Math.max(0, toFiniteNumber(v))) : [];
+  const max = data.reduce((m, v) => Math.max(m, v), 1);
   const hasLabels = labels && labels.length === data.length;
+
+  if (data.length === 0 || data.every((v) => v === 0)) {
+    return (
+      <div
+        className={cn('flex w-full items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-hope-muted', className)}
+        style={{ height }}
+      >
+        {data.length === 0 ? 'No data yet' : 'No activity in this period'}
+      </div>
+    );
+  }
 
   return (
     <div className={cn('w-full', className)}>
@@ -44,7 +54,7 @@ export function MiniBarChart({
         )}
         <div className="relative flex h-full items-end gap-1.5 px-0.5">
           {data.map((value, i) => {
-            const barHeight = Math.max(6, Math.round((value / max) * (height - 8)));
+            const barHeight = value === 0 ? 2 : Math.max(6, Math.round((value / max) * (height - 8)));
             return (
               <div
                 key={`${i}-${value}`}

@@ -8,6 +8,18 @@ interface QrScannerProps {
   disabled?: boolean;
 }
 
+function cameraErrorMessage(err: unknown): string {
+  const text = err instanceof Error ? `${err.name} ${err.message}` : String(err ?? '');
+  if (/NotAllowed|Permission|denied/i.test(text)) {
+    return 'Camera access was denied. Allow camera permission in your browser settings, or enter the code manually.';
+  }
+  if (/NotFound|no camera|Requested device not found/i.test(text)) return 'No camera found on this device.';
+  if (/NotReadable|in use|TrackStart/i.test(text)) {
+    return 'The camera is being used by another app. Close it and try again.';
+  }
+  return 'Could not access the camera. Please try again or enter the code manually.';
+}
+
 export function QrScanner({ onScan, disabled }: QrScannerProps) {
   const reactId = useId();
   const regionId = `truemark-qr-${reactId.replace(/:/g, '')}`;
@@ -63,13 +75,15 @@ export function QrScanner({ onScan, disabled }: QrScannerProps) {
         );
       } catch (err) {
         if (cancelled) return;
-        const message =
-          err instanceof Error
-            ? err.message
-            : 'Could not access camera. Allow camera permission and try again.';
-        setError(message);
+        setError(cameraErrorMessage(err));
         setActive(false);
       }
+    }
+
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setError('Camera scanning requires a secure (HTTPS) connection. Enter the code manually below.');
+      setActive(false);
+      return;
     }
 
     void start();

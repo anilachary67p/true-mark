@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { useAuthGuard, useSession } from '@/lib/hooks';
+import { useAuthGuard, useTenantId } from '@/lib/hooks';
 import { useAsyncAction, useAsyncData } from '@/lib/useAsync';
 import { formatNumber, toFiniteNumber } from '@/lib/format';
 import { parseIntInRange } from '@/lib/validation';
@@ -40,7 +40,7 @@ function validateObjectKey(key: string, tenantId: string): string {
 
 export default function AiDetectionPage() {
   useAuthGuard();
-  const { tenantId, loading: sessionLoading, error: sessionError, retry: retrySession } = useSession();
+  const tenantId = useTenantId();
   const [objectKey, setObjectKey] = useState('');
   const [objectKeyTouched, setObjectKeyTouched] = useState(false);
   const [quotaInput, setQuotaInput] = useState('');
@@ -145,21 +145,8 @@ export default function AiDetectionPage() {
     }
   }
 
-  if (sessionError && !tenantId) {
+  if (!tenantId) {
     return (
-      <Alert variant="error">
-        {sessionError}{' '}
-        <Button size="sm" variant="outline" onClick={retrySession}>
-          Retry
-        </Button>
-      </Alert>
-    );
-  }
-
-  if (sessionLoading || !tenantId) {
-    return sessionLoading ? (
-      <PageSkeleton />
-    ) : (
       <EmptyState title="No organization selected" description="Your account is not linked to a tenant." />
     );
   }

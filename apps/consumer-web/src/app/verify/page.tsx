@@ -212,7 +212,17 @@ function VerifyContent() {
         </div>
       )}
 
-      {error && <p style={{ color: '#dc2626', textAlign: 'center', marginTop: '1rem' }}>{error}</p>}
+      {loading && result === null && (
+        <p role="status" style={{ textAlign: 'center', color: '#666', marginTop: '1rem' }}>
+          Verifying…
+        </p>
+      )}
+
+      {error && (
+        <p id="verify-error" role="alert" style={{ color: '#dc2626', textAlign: 'center', marginTop: '1rem' }}>
+          {error}
+        </p>
+      )}
 
       {result && (
         <div
@@ -231,28 +241,28 @@ function VerifyContent() {
                 color: isSuccess ? '#16a34a' : isWarning ? '#d97706' : '#dc2626',
               }}
             >
-              {result.result.replace(/_/g, ' ')}
+              {humanize(result.result)}
             </h2>
           </div>
-          <p style={{ textAlign: 'center', color: '#666', marginBottom: '1rem' }}>
-            {result.message}
-          </p>
+          {result.message && (
+            <p style={{ textAlign: 'center', color: '#666', marginBottom: '1rem' }}>{result.message}</p>
+          )}
           {result.product && (
             <div style={{ borderTop: '1px solid #eee', paddingTop: '1rem' }}>
               <Row label="Product" value={result.product.name} />
               <Row label="Category" value={result.product.category} />
-              <Row label="Product type" value={result.product.productType} />
+              <Row label="Product type" value={humanize(result.product.productType)} />
               {result.product.productCode && (
                 <Row label="Product code" value={result.product.productCode} />
               )}
               {result.product.batch && <Row label="Batch" value={result.product.batch} />}
               {result.product.serial && <Row label="Serial" value={result.product.serial} />}
-              {result.product.tags && result.product.tags.length > 0 && (
+              {Array.isArray(result.product.tags) && result.product.tags.length > 0 && (
                 <Row label="Tags" value={result.product.tags.join(', ')} />
               )}
             </div>
           )}
-          {result.aiAvailable && (
+          {result.aiAvailable && result.verificationPublicId && (
             <AiCapturePanel
               verificationPublicId={result.verificationPublicId}
               aiMode={result.aiMode}
@@ -264,7 +274,12 @@ function VerifyContent() {
             </p>
           )}
           <button
-            onClick={() => setResult(null)}
+            type="button"
+            onClick={() => {
+              setResult(null);
+              setError('');
+              setCode('');
+            }}
             style={{
               width: '100%',
               marginTop: '1rem',
@@ -295,85 +310,112 @@ function AiCapturePanel({
   const [aiError, setAiError] = useState('');
   const [busy, setBusy] = useState(false);
   const [requiredViews, setRequiredViews] = useState<string[]>(['FRONT', 'BACK']);
+  const [uploadedViews, setUploadedViews] = useState<string[]>([]);
+  const busyRef = useRef(false);
 
-  async function startAi() {
+  const finished = status !== '' && !['PENDING', 'IMAGE_NOT_CLEAR'].includes(status);
+  const missingViews = requiredViews.filter((view) => !uploadedViews.includes(view));
+
+  async function withBusy(fn: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setAiError('');
     try {
-      const res = await fetch(`${resolveApiUrl()}/api/v1/public/verify/ai/initiate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verificationPublicId }),
-      });
-      const data = await res.json();
-      if (data.status === 'AI_NOT_CONFIGURED') {
-        setAiError('AI validation is not configured for this product.');
-        return;
-      }
-      if (data.status === 'AI_UNAVAILABLE') {
-        setAiError(data.message ?? 'AI validation is temporarily unavailable.');
-        return;
-      }
-      setJobId(data.jobId);
-      setStatus(data.status);
-      if (Array.isArray(data.requiredViews)) {
-        setRequiredViews(data.requiredViews as string[]);
-      }
-    } catch {
-      setAiError('Could not start AI validation.');
+      await fn();
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
-  async function uploadImage(viewAngle: string, file: File) {
-    if (!jobId) return;
-    setBusy(true);
-    setAiError('');
-    const form = new FormData();
-    form.append('image', file);
-    form.append('viewAngle', viewAngle);
-    try {
-      const res = await fetch(`${resolveApiUrl()}/api/v1/public/verify/ai/${jobId}/images`, {
-        method: 'POST',
-        body: form,
-      });
-      const data = await res.json();
-      if (data.status === 'IMAGE_NOT_CLEAR') {
-        setAiError(data.message ?? 'Image not clear enough.');
+  function startAi() {
+    return withBusy(async () => {
+      try {
+        const data = await postJson<{
+          status?: string;
+          message?: string;
+          jobId?: string;
+          requiredViews?: unknown;
+        }>('/verify/ai/initiate', { verificationPublicId });
+        if (data.status === 'AI_NOT_CONFIGURED') {
+          setAiError('AI validation is not configured for this product.');
+          return;
+        }
+        if (data.status === 'AI_UNAVAILABLE' || !data.jobId) {
+          setAiError(data.message ?? 'AI validation is temporarily unavailable.');
+          return;
+        }
+        setJobId(data.jobId);
+        setStatus(data.status ?? 'PENDING');
+        setUploadedViews([]);
+        if (Array.isArray(data.requiredViews) && data.requiredViews.every((v) => typeof v === 'string')) {
+          setRequiredViews(data.requiredViews.length > 0 ? (data.requiredViews as string[]) : ['FRONT']);
+        }
+      } catch (err) {
+        setAiError(errorText(err, 'Could not start AI validation.'));
       }
-    } catch {
-      setAiError('Image upload failed.');
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
-  async function processAi() {
+  function uploadImage(viewAngle: string, file: File, input: HTMLInputElement) {
     if (!jobId) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`${resolveApiUrl()}/api/v1/public/verify/ai/${jobId}/process`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      setStatus(data.status);
-      if (data.confidence != null) setConfidence(data.confidence);
-      if (data.status === 'AI_UNAVAILABLE') setAiError('AI validation unavailable.');
-    } catch {
-      setAiError('AI processing failed.');
-    } finally {
-      setBusy(false);
+    const invalid = validateImage(file);
+    if (invalid) {
+      setAiError(invalid);
+      input.value = '';
+      return;
     }
+    return withBusy(async () => {
+      const form = new FormData();
+      form.append('image', file);
+      form.append('viewAngle', viewAngle);
+      try {
+        const data = await publicRequest<{ status?: string; message?: string }>(
+          `/verify/ai/${encodeURIComponent(jobId)}/images`,
+          { method: 'POST', body: form },
+        );
+        if (data.status === 'IMAGE_NOT_CLEAR') {
+          setAiError(data.message ?? `The ${viewAngle.toLowerCase()} photo is not clear enough. Please retake it.`);
+          setUploadedViews((views) => views.filter((v) => v !== viewAngle));
+          input.value = '';
+          return;
+        }
+        setUploadedViews((views) => (views.includes(viewAngle) ? views : [...views, viewAngle]));
+      } catch (err) {
+        setAiError(errorText(err, 'Image upload failed. Please try again.'));
+        input.value = '';
+      }
+    });
+  }
+
+  function processAi() {
+    if (!jobId || missingViews.length > 0) return;
+    return withBusy(async () => {
+      try {
+        const data = await postJson<{ status?: string; confidence?: unknown }>(
+          `/verify/ai/${encodeURIComponent(jobId)}/process`,
+          {},
+        );
+        setStatus(data.status ?? '');
+        const c = Number(data.confidence);
+        if (data.confidence != null && Number.isFinite(c)) setConfidence(Math.min(1, Math.max(0, c)));
+        if (data.status === 'AI_UNAVAILABLE') setAiError('AI validation is temporarily unavailable.');
+      } catch (err) {
+        setAiError(errorText(err, 'AI processing failed. Please try again.'));
+      }
+    });
   }
 
   if (!jobId) {
     return (
       <div style={{ marginTop: '1rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
         <p style={{ fontSize: 14, color: '#2563eb', textAlign: 'center', marginBottom: 8 }}>
-          Optional physical product validation ({aiMode.replace(/_/g, ' ').toLowerCase()})
+          Optional physical product validation
+          {aiMode ? ` (${humanize(aiMode).toLowerCase()})` : ''}
         </p>
         <button
+          type="button"
           onClick={startAi}
           disabled={busy}
           style={{
@@ -387,7 +429,11 @@ function AiCapturePanel({
         >
           {busy ? 'Starting…' : 'Validate with AI'}
         </button>
-        {aiError && <p style={{ color: '#dc2626', fontSize: 13, marginTop: 8 }}>{aiError}</p>}
+        {aiError && (
+          <p role="alert" style={{ color: '#dc2626', fontSize: 13, marginTop: 8 }}>
+            {aiError}
+          </p>
+        )}
       </div>
     );
   }
@@ -395,26 +441,33 @@ function AiCapturePanel({
   return (
     <div style={{ marginTop: '1rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
       <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-        AI capture — upload: {requiredViews.join(', ')}
+        AI capture — upload: {requiredViews.map(humanize).join(', ')}
       </p>
       {requiredViews.map((angle) => (
         <label key={angle} style={{ display: 'block', marginBottom: 8, fontSize: 14 }}>
-          {angle} image
+          {humanize(angle)} image {uploadedViews.includes(angle) && <span style={{ color: '#16a34a' }}>✓ uploaded</span>}
           <input
             type="file"
-            accept="image/*"
+            accept={ACCEPTED_IMAGE_TYPES.join(',')}
             capture="environment"
+            disabled={busy || finished}
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) uploadImage(angle, f);
+              if (f) void uploadImage(angle, f, e.currentTarget);
             }}
             style={{ display: 'block', marginTop: 4 }}
           />
         </label>
       ))}
+      {missingViews.length > 0 && !finished && (
+        <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+          Still needed: {missingViews.map(humanize).join(', ')}
+        </p>
+      )}
       <button
+        type="button"
         onClick={processAi}
-        disabled={busy}
+        disabled={busy || finished || missingViews.length > 0}
         style={{
           width: '100%',
           padding: '0.75rem',
@@ -425,21 +478,30 @@ function AiCapturePanel({
           marginTop: 8,
         }}
       >
-        {busy ? 'Processing…' : 'Run AI analysis'}
+        {busy ? 'Working…' : 'Run AI analysis'}
       </button>
-      {status && <p style={{ fontSize: 13, marginTop: 8 }}>Status: {status}</p>}
+      {status && (
+        <p role="status" style={{ fontSize: 13, marginTop: 8 }}>
+          Status: {humanize(status)}
+        </p>
+      )}
       {confidence != null && (
         <p style={{ fontSize: 13, marginTop: 4 }}>
           AI confidence: {(confidence * 100).toFixed(0)}% — probabilistic evidence only, not proof
           of authenticity.
         </p>
       )}
-      {aiError && <p style={{ color: '#dc2626', fontSize: 13, marginTop: 8 }}>{aiError}</p>}
+      {aiError && (
+        <p role="alert" style={{ color: '#dc2626', fontSize: 13, marginTop: 8 }}>
+          {aiError}
+        </p>
+      )}
     </div>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null;
   return (
     <div
       style={{
